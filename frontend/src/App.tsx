@@ -15,6 +15,7 @@ import HistoryOverview from '@/pages/HistoryOverview';
 import PracticeHistory from '@/pages/PracticeHistory';
 import InterviewHistory from '@/pages/InterviewHistory';
 import InterviewDetail from '@/pages/InterviewDetail';
+import KnowledgeBase from '@/pages/KnowledgeBase';
 
 /**
  * 路由守卫：未登录重定向到 /login
@@ -81,6 +82,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/history/practice/:sessionId" element={<PracticeDetail />} />
           <Route path="/history/interview" element={<InterviewHistory />} />
           <Route path="/history/interview/:id" element={<InterviewDetail />} />
+          <Route path="/knowledge" element={<KnowledgeBase />} />
         </Route>
       </Route>
 

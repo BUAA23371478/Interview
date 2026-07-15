@@ -78,7 +78,6 @@ export function usePracticeSSE(
 
               case 'session_completed':
                 dispatch({ type: 'SET_COMPLETED' });
-                dispatch({ type: 'SET_ERROR', payload: '已达题目上限，请查看历史记录' });
                 break;
 
               case 'question_start':

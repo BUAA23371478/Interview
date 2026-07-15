@@ -29,11 +29,15 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   const { method = 'GET', body, timeout = 30000 } = options;
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(options.headers || {}),
   };
+  // 仅当 body 不是 FormData 时设置 JSON Content-Type
+  if (!(body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   const userId = getUserId();
-  if (userId) {
+  if (userId && !headers['X-User-Id']) {
     headers['X-User-Id'] = userId;
   }
 
@@ -44,7 +48,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     const response = await fetch(`${BASE_URL}${endpoint}`, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: body instanceof FormData ? body : (body ? JSON.stringify(body) : undefined),
       signal: controller.signal,
     });
 
@@ -88,6 +92,15 @@ export const api = {
 
   delete: <T>(endpoint: string, options?: RequestOptions) =>
     request<T>(endpoint, { ...options, method: 'DELETE' }),
+
+  upload: <T>(endpoint: string, formData: FormData, options?: RequestOptions) => {
+    const headers: Record<string, string> = {};
+    const userId = getUserId();
+    if (userId) headers['X-User-Id'] = userId;
+    // 不设 Content-Type，让浏览器自动生成 multipart boundary
+    const mergedOptions = { ...options, method: 'POST' as const, body: formData, headers };
+    return request<T>(endpoint, mergedOptions);
+  },
 };
 
 export default api;

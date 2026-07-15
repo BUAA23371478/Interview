@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, HelpCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { practiceApi } from '@/api/practice';
 import type { PracticeSessionDetail } from '@/types/practice';
 import { formatDate } from '@/utils/format';
@@ -21,7 +21,6 @@ const PracticeDetail: React.FC = () => {
       try {
         const data = await practiceApi.getSessionDetail(sessionId);
         setDetail(data);
-        // 自动展开待答题目
         const pending = data.records.find((r) => !r.userAnswer);
         if (pending) setExpanded(new Set([pending.id]));
       } catch {
@@ -39,6 +38,15 @@ const PracticeDetail: React.FC = () => {
       return next;
     });
   };
+
+  // 必须在所有条件 return 之前调用（React hooks 规则）
+  const records = detail?.records ?? [];
+  const lastPendingIdx = useMemo(() => {
+    for (let i = records.length - 1; i >= 0; i--) {
+      if (!records[i].userAnswer) return i;
+    }
+    return -1;
+  }, [records]);
 
   if (loading) {
     return (
@@ -59,7 +67,7 @@ const PracticeDetail: React.FC = () => {
     );
   }
 
-  const { session, records } = detail;
+  const { session } = detail;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -78,17 +86,25 @@ const PracticeDetail: React.FC = () => {
             <h1 className="text-xl font-bold text-slate-800 mb-2">{session.topic}</h1>
             <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
               <span>{formatDate(session.createdAt)}</span>
-              <span className="font-medium text-slate-600">{session.totalQuestions}/{session.maxQuestions || 20} 题已答</span>
-              <span className={`px-1.5 py-0.5 rounded-full text-xs ${
-                session.status === 'completed' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'
-              }`}>
+              <span className="font-medium text-slate-600">
+                {session.totalQuestions}/{session.maxQuestions || 20} 题已答
+              </span>
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-xs ${
+                  session.status === 'completed'
+                    ? 'bg-green-100 text-green-600'
+                    : 'bg-blue-100 text-blue-600'
+                }`}
+              >
                 {session.status === 'completed' ? '已完成' : '进行中'}
               </span>
             </div>
           </div>
           {session.status !== 'completed' && (
             <button
-              onClick={() => navigate(`/practice/${session.id}`, { state: { topic: session.topic } })}
+              onClick={() =>
+                navigate(`/practice/${session.id}`, { state: { topic: session.topic } })
+              }
               className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-xl transition-colors flex-shrink-0"
             >
               继续练习
@@ -102,16 +118,21 @@ const PracticeDetail: React.FC = () => {
         <div className="text-center py-12 text-slate-400">暂无题目</div>
       ) : (
         <div className="space-y-3">
-          {records.map((record) => {
-            const isPending = !record.userAnswer;
+          {records.map((record, idx) => {
+            const isPending = !record.userAnswer && idx === lastPendingIdx;
             const isSkipped = record.userAnswer === '不了解';
             const isOpen = expanded.has(record.id);
 
             return (
-              <div key={record.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${
-                isPending ? 'border-primary-400 ring-1 ring-primary-100' : 'border-slate-200'
-              }`}>
-                {/* Summary Row — always visible */}
+              <div
+                key={record.id}
+                className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${
+                  isPending
+                    ? 'border-primary-400 ring-1 ring-primary-100'
+                    : 'border-slate-200'
+                }`}
+              >
+                {/* Summary Row */}
                 <button
                   onClick={() => toggleExpand(record.id)}
                   className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-50 transition-colors"
@@ -141,7 +162,11 @@ const PracticeDetail: React.FC = () => {
                       {record.question.slice(0, 80)}...
                     </span>
                   </div>
-                  {isOpen ? <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0" /> : <ChevronRight className="w-5 h-5 text-slate-400 flex-shrink-0" />}
+                  {isOpen ? (
+                    <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-5 h-5 text-slate-400 flex-shrink-0" />
+                  )}
                 </button>
 
                 {/* Expanded Detail */}
@@ -150,19 +175,17 @@ const PracticeDetail: React.FC = () => {
                     {/* Question */}
                     <div className="p-3 bg-slate-50 rounded-xl">
                       <p className="text-xs text-slate-400 mb-1">📋 题目</p>
-                      <div className="text-sm text-slate-700"><MarkdownContent content={record.question} /></div>
+                      <div className="text-sm text-slate-700">
+                        <MarkdownContent content={record.question} />
+                      </div>
                     </div>
 
-                    {/* Pending → action button */}
+                    {/* Pending → 提示用户用顶部"继续练习" */}
                     {isPending ? (
                       <div className="p-4 bg-primary-50 rounded-xl text-center">
-                        <p className="text-sm text-primary-700 mb-3">这道题还未回答</p>
-                        <button
-                          onClick={() => navigate(`/practice/${session.id}`, { state: { topic: session.topic } })}
-                          className="px-5 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-xl transition-colors"
-                        >
-                          立即回答
-                        </button>
+                        <p className="text-sm text-primary-700">
+                          这道题还未回答，点击上方「继续练习」进入答题
+                        </p>
                       </div>
                     ) : (
                       <>
@@ -171,7 +194,9 @@ const PracticeDetail: React.FC = () => {
                           <div className="flex items-center gap-2 mb-1">
                             <p className="text-xs text-slate-400">📝 你的答案</p>
                             {isSkipped && (
-                              <span className="px-1.5 py-0.5 text-xs bg-orange-100 text-orange-600 rounded-full">不了解</span>
+                              <span className="px-1.5 py-0.5 text-xs bg-orange-100 text-orange-600 rounded-full">
+                                不了解
+                              </span>
                             )}
                           </div>
                           <div className="text-sm text-slate-700 whitespace-pre-wrap">
@@ -183,7 +208,9 @@ const PracticeDetail: React.FC = () => {
                         <div className="p-3 bg-green-50 rounded-xl">
                           <p className="text-xs text-slate-400 mb-1">📖 参考答案</p>
                           <div className="text-sm text-slate-700">
-                            <MarkdownContent content={record.feedback || record.referenceAnswer} />
+                            <MarkdownContent
+                              content={record.feedback || record.referenceAnswer}
+                            />
                           </div>
                         </div>
                       </>

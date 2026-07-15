@@ -11,6 +11,10 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=100)
 
 
+class ResumeSaveRequest(BaseModel):
+    resume: str = Field(min_length=0, max_length=5000)
+
+
 class PracticeStartRequest(BaseModel):
     topic: str = Field(min_length=1, max_length=50)
     max_questions: int = Field(default=20, ge=3, le=50)

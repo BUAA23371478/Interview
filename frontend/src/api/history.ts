@@ -27,4 +27,16 @@ export const userApi = {
 
   getCurrent: () =>
     api.get<User>('/user'),
+
+  getResume: () =>
+    api.get<{ resume: string }>('/user/resume'),
+
+  saveResume: (resume: string) =>
+    api.put<{ status: string }>('/user/resume', { resume }),
+
+  parseResume: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.upload<{ resume: string }>('/user/resume/parse', formData);
+  },
 };

@@ -8,7 +8,7 @@ from backend.config import settings
 from backend.database.migrations import init_db
 from backend.llm.client import UnifiedLLMClient
 from backend.middleware.error_handler import AppException, app_exception_handler, global_exception_handler
-from backend.routers import history, interview, practice, user
+from backend.routers import history, interview, knowledge, practice, user
 
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ app.include_router(user.router)
 app.include_router(practice.router)
 app.include_router(interview.router)
 app.include_router(history.router)
+app.include_router(knowledge.router)
 
 app.add_exception_handler(AppException, app_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
@@ -48,6 +49,26 @@ async def test_llm_connection() -> dict:
     """测试 LLM API 连通性。"""
     client = UnifiedLLMClient()
     return await client.test_connection()
+
+
+@app.get("/api/embedding/test")
+async def test_embedding_connection() -> dict:
+    """测试 Embedding API 连通性。"""
+    from backend.rag.embedding import embedding_client
+
+    if not embedding_client._enabled:
+        return {"ok": False, "model": "N/A", "dimension": 0, "error": "未配置 EMBEDDING_API_KEY"}
+
+    try:
+        emb = await embedding_client.embed("test")
+        return {
+            "ok": not embedding_client._api_failed,
+            "model": embedding_client._model,
+            "dimension": len(emb) if emb else 0,
+            "base_url": embedding_client._base_url,
+        }
+    except Exception as e:
+        return {"ok": False, "model": embedding_client._model, "dimension": 0, "error": str(e)}
 
 
 if __name__ == "__main__":

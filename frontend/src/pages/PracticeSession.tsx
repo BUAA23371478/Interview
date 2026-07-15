@@ -209,13 +209,22 @@ const PracticeSession: React.FC = () => {
           <FeedbackPanel feedback={state.feedback} />
 
           <div className="flex justify-center pt-2">
-            <button
-              onClick={handleNextQuestion}
-              className="flex items-center gap-2 px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-xl transition-all duration-200 active:scale-95 shadow-sm"
-            >
-              下一题
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {state.completed ? (
+              <button
+                onClick={() => navigate('/')}
+                className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-xl transition-all duration-200 active:scale-95 shadow-sm"
+              >
+                完成
+              </button>
+            ) : (
+              <button
+                onClick={handleNextQuestion}
+                className="flex items-center gap-2 px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-xl transition-all duration-200 active:scale-95 shadow-sm"
+              >
+                下一题
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       )}

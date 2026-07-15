@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="deepseek-chat", alias="LLM_MODEL")
     llm_long_context_model: str = Field(default="deepseek-chat", alias="LLM_LONG_CONTEXT_MODEL")
 
+    # Embedding 独立配置（Chat 和 Embedding 通常是两个不同服务）
+    embedding_api_key: str = Field(default="", alias="EMBEDDING_API_KEY")
+    embedding_base_url: str = Field(default="https://api.siliconflow.cn/v1", alias="EMBEDDING_BASE_URL")
+    embedding_model: str = Field(default="BAAI/bge-m3", alias="EMBEDDING_MODEL")
+
     database_url: str = Field(default="sqlite+aiosqlite:///./data/interview.db", alias="DATABASE_URL")
 
     host: str = Field(default="0.0.0.0", alias="HOST")

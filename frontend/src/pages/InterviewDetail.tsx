@@ -8,6 +8,32 @@ import LoadingDots from '@/components/LoadingDots';
 import ScoreBar from '@/components/ScoreBar';
 import RadarChartView from '@/components/RadarChart';
 import MarkdownContent from '@/utils/markdown';
+import type { InterviewReport as InterviewReportType } from '@/types/interview';
+
+function mapReport(r: Record<string, unknown>): InterviewReportType {
+  return {
+    overallScore: (r.overall_score as number) ?? (r.overallScore as number) ?? 0,
+    dimensions: {
+      techDepth: (r.tech_depth as number) ?? (r.techDepth as number) ?? 0,
+      clarity: (r.clarity as number) ?? 0,
+      logic: (r.logic as number) ?? 0,
+      jobMatch: (r.job_match as number) ?? (r.jobMatch as number) ?? 0,
+    },
+    overallComment: (r.overall_comment as string) ?? (r.overallComment as string) ?? '',
+    roundReviews: (r.round_reviews as Array<Record<string,unknown>>)?.map((rv) => ({
+      round: rv.round as number ?? 0,
+      question: rv.question as string ?? '',
+      answerSummary: rv.answer_summary as string ?? (rv.answerSummary as string) ?? '',
+      comment: rv.comment as string ?? '',
+    })) ?? [],
+    highlights: (r.highlights as Array<Record<string,unknown>>)?.map((h) => ({
+      round: h.round as number ?? 0,
+      reason: h.reason as string ?? '',
+    })) ?? [],
+    weaknesses: (r.weaknesses as string[]) ?? [],
+    suggestions: (r.suggestions as string[]) ?? [],
+  };
+}
 
 const InterviewDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -20,8 +46,13 @@ const InterviewDetail: React.FC = () => {
     if (!id) return;
     const fetch = async () => {
       try {
-        const data = await interviewApi.getSessionDetail(id);
-        setDetail(data);
+        const raw = await interviewApi.getSessionDetail(id);
+        // map snake_case report to camelCase
+        if (raw && (raw as Record<string,unknown>).report) {
+          const r = (raw as Record<string,unknown>).report as Record<string,unknown>;
+          (raw as Record<string,unknown>).report = mapReport(r);
+        }
+        setDetail(raw);
       } catch {
         setError('加载详情失败');
       } finally {

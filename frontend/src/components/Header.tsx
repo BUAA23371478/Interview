@@ -44,6 +44,16 @@ const Header: React.FC = () => {
           >
             历史记录
           </Link>
+          <Link
+            to="/knowledge"
+            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+              location.pathname.startsWith('/knowledge')
+                ? 'text-amber-600 bg-amber-50'
+                : 'text-slate-600 hover:text-amber-600 hover:bg-amber-50'
+            }`}
+          >
+            知识库
+          </Link>
           <span className="ml-2 px-3 py-1.5 text-sm text-slate-500 bg-slate-100 rounded-full">
             👤 {getUsername()}
           </span>

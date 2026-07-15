@@ -30,6 +30,18 @@ class InterviewRepo(BaseRepository):
         await self.db.flush()
         return qa
 
+    async def update_qa_feedback(self, session_id: int, round_number: int, ai_feedback: str) -> None:
+        result = await self.db.execute(
+            select(InterviewQA).where(
+                InterviewQA.session_id == session_id,
+                InterviewQA.round_number == round_number,
+            ).order_by(InterviewQA.id.desc()).limit(1)
+        )
+        qa = result.scalar_one_or_none()
+        if qa:
+            qa.ai_feedback = ai_feedback
+            await self.db.flush()
+
     async def save_report(self, session_id: int, report: dict) -> None:
         session = await self.get_session(session_id)
         if session is None:

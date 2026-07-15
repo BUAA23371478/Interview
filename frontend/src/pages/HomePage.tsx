@@ -5,35 +5,38 @@ import api from '@/api/client';
 const HomePage: React.FC = () => {
   const [testResult, setTestResult] = useState<{
     loading: boolean;
-    ok?: boolean;
-    model?: string;
-    latency?: number;
-    error?: string;
+    chatOk?: boolean;
+    chatModel?: string;
+    chatLatency?: number;
+    chatError?: string;
+    embOk?: boolean;
+    embModel?: string;
+    embDim?: number;
+    embError?: string;
   } | null>(null);
 
   const handleTestConnection = async () => {
     setTestResult({ loading: true });
-    try {
-      const res = await api.get<{
-        ok: boolean;
-        model: string;
-        latency_ms: number;
-        error?: string;
-      }>('/llm/test');
-      setTestResult({
-        loading: false,
-        ok: res.ok,
-        model: res.model,
-        latency: res.latency_ms,
-        error: res.error,
-      });
-    } catch (e: unknown) {
-      setTestResult({
-        loading: false,
-        ok: false,
-        error: '请求失败，请检查后端服务是否启动',
-      });
-    }
+    // 并行测试 Chat API 和 Embedding API
+    const [chatRes, embRes] = await Promise.allSettled([
+      api.get<{ ok: boolean; model: string; latency_ms: number; error?: string }>('/llm/test'),
+      api.get<{ ok: boolean; model: string; dimension: number; error?: string }>('/embedding/test'),
+    ]);
+
+    const chat = chatRes.status === 'fulfilled' ? chatRes.value : null;
+    const emb = embRes.status === 'fulfilled' ? embRes.value : null;
+
+    setTestResult({
+      loading: false,
+      chatOk: chat?.ok ?? false,
+      chatModel: chat?.model ?? 'N/A',
+      chatLatency: chat?.latency_ms ?? 0,
+      chatError: chat?.error ?? (chatRes.status === 'rejected' ? '请求失败' : undefined),
+      embOk: emb?.ok ?? false,
+      embModel: emb?.model ?? 'N/A',
+      embDim: emb?.dimension ?? 0,
+      embError: emb?.error ?? (embRes.status === 'rejected' ? '请求失败' : undefined),
+    });
   };
 
   return (
@@ -56,13 +59,40 @@ const HomePage: React.FC = () => {
         <ModeCard mode="interview" />
       </div>
 
+      {/* Knowledge Base Card */}
+      <div className="mt-6 max-w-2xl mx-auto">
+        <div
+          onClick={() => window.location.hash = '#/knowledge'}
+          className="group cursor-pointer bg-white rounded-2xl border border-slate-200 shadow-sm p-6 hover:border-amber-300 hover:shadow-md transition-all duration-200 flex items-center gap-5"
+        >
+          <div className="p-3 rounded-xl bg-amber-100 group-hover:bg-amber-200 transition-colors">
+            <svg className="w-7 h-7 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold text-slate-800 group-hover:text-amber-700 transition-colors">
+              📚 知识库管理
+            </h3>
+            <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+              上传技术文档构建 RAG 知识库，增强刷题出题和面试提问的针对性与准确性
+            </p>
+          </div>
+          <div className="text-slate-300 group-hover:text-amber-500 transition-colors">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
       {/* API Connectivity Test */}
       <div className="mt-12 max-w-md mx-auto">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold text-slate-700">🔗 API 连通性测试</h3>
-              <p className="text-xs text-slate-400 mt-0.5">测试后端与大模型的连接状态</p>
+              <p className="text-xs text-slate-400 mt-0.5">Chat + Embedding 双 API 连接状态</p>
             </div>
             <button
               onClick={handleTestConnection}
@@ -74,26 +104,31 @@ const HomePage: React.FC = () => {
           </div>
 
           {testResult && !testResult.loading && (
-            <div className={`mt-3 p-3 rounded-lg text-sm ${
-              testResult.ok
-                ? 'bg-green-50 border border-green-200 text-green-700'
-                : 'bg-red-50 border border-red-200 text-red-600'
-            }`}>
-              {testResult.ok ? (
-                <>
-                  <span className="font-medium">✅ 连接成功</span>
-                  <span className="ml-2 text-green-600">
-                    模型 {testResult.model}，耗时 {testResult.latency}ms
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="font-medium">❌ 连接失败</span>
-                  {testResult.error && (
-                    <span className="ml-2">{testResult.error}</span>
-                  )}
-                </>
-              )}
+            <div className="mt-3 space-y-2">
+              {/* Chat API */}
+              <div className={`p-3 rounded-lg text-sm ${
+                testResult.chatOk
+                  ? 'bg-green-50 border border-green-200 text-green-700'
+                  : 'bg-red-50 border border-red-200 text-red-600'
+              }`}>
+                {testResult.chatOk ? (
+                  <span>💬 Chat API ✅ — {testResult.chatModel}，{testResult.chatLatency}ms</span>
+                ) : (
+                  <span>💬 Chat API ❌ — {testResult.chatError || '连接失败'}</span>
+                )}
+              </div>
+              {/* Embedding API */}
+              <div className={`p-3 rounded-lg text-sm ${
+                testResult.embOk
+                  ? 'bg-green-50 border border-green-200 text-green-700'
+                  : 'bg-red-50 border border-red-200 text-red-600'
+              }`}>
+                {testResult.embOk ? (
+                  <span>🧬 Embedding API ✅ — {testResult.embModel}，{testResult.embDim}维</span>
+                ) : (
+                  <span>🧬 Embedding API ❌ — {testResult.embError || '未配置或连接失败'}</span>
+                )}
+              </div>
             </div>
           )}
         </div>

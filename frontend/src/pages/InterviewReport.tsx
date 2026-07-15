@@ -8,6 +8,24 @@ import RadarChartView from '@/components/RadarChart';
 import LoadingDots from '@/components/LoadingDots';
 import MarkdownContent from '@/utils/markdown';
 
+/** 把后端 snake_case 报告映射为前端 camelCase */
+function mapReport(r: Record<string, unknown>): InterviewReportType {
+  return {
+    overallScore: (r.overall_score as number) ?? (r.overallScore as number) ?? 0,
+    dimensions: {
+      techDepth: (r.tech_depth as number) ?? (r.techDepth as number) ?? 0,
+      clarity: (r.clarity as number) ?? 0,
+      logic: (r.logic as number) ?? 0,
+      jobMatch: (r.job_match as number) ?? (r.jobMatch as number) ?? 0,
+    },
+    overallComment: (r.overall_comment as string) ?? (r.overallComment as string) ?? '',
+    roundReviews: (r.round_reviews as RoundReview[]) ?? (r.roundReviews as RoundReview[]) ?? [],
+    highlights: (r.highlights as Highlight[]) ?? [],
+    weaknesses: (r.weaknesses as string[]) ?? [],
+    suggestions: (r.suggestions as string[]) ?? [],
+  };
+}
+
 const InterviewReport: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -20,12 +38,14 @@ const InterviewReport: React.FC = () => {
 
     const fetchReport = async () => {
       try {
-        // Poll for report if it's not ready yet
         let retries = 0;
         while (retries < 10) {
           try {
-            const data = await interviewApi.getReport(sessionId);
-            setReport(data);
+            const raw = await interviewApi.getReport(sessionId);
+            // API 返回 { sessionId, report: { overall_score, ... } }
+            const r = (raw as Record<string, unknown>)?.report || raw;
+            const mapped = mapReport(r as Record<string, unknown>);
+            setReport(mapped);
             setLoading(false);
             return;
           } catch {
@@ -33,10 +53,9 @@ const InterviewReport: React.FC = () => {
             await new Promise((r) => setTimeout(r, 2000));
           }
         }
-        throw new Error('报告生成超时，请稍后重试');
+        throw new Error('报告生成超时');
       } catch (e: unknown) {
-        const err = e as { message?: string };
-        setError(err.message || '获取报告失败');
+        setError((e as { message?: string }).message || '获取报告失败');
         setLoading(false);
       }
     };

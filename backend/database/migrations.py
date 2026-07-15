@@ -1,5 +1,5 @@
 from backend.database.connection import Base, engine
-from backend.models import interview, practice, user  # noqa: F401
+from backend.models import interview, knowledge, practice, user  # noqa: F401
 
 
 async def init_db() -> None:
