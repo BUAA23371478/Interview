@@ -33,7 +33,11 @@ async def get_current_user(
     x_maoo_username: Optional[str] = Header(default=None),
     x_maoo_user_role: Optional[str] = Header(default=None),
 ) -> Optional[MaooUser]:
-    """读取平台注入的用户身份。未登录时返回 None（供公开端点）。"""
+    """读取平台注入的用户身份。
+
+    - 生产（debug=False）：只认 X-Maoo-* 请求头，无头则未登录（401）
+    - 本地开发（debug=True）：无平台头时回退到 settings 的 dev 用户
+    """
     if x_maoo_user_id:
         try:
             uid = int(x_maoo_user_id)
@@ -43,6 +47,13 @@ async def get_current_user(
             user_id=uid,
             username=x_maoo_username or "",
             role=x_maoo_user_role or "user",
+        )
+    if settings.debug:
+        # 本地开发兜底：方便不带平台头直接测试全流程
+        return MaooUser(
+            user_id=settings.dev_user_id,
+            username=settings.dev_username,
+            role=settings.dev_role,
         )
     return None
 
