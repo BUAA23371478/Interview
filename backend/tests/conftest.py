@@ -1,98 +1,57 @@
-"""Pytest 配置和共享 Fixtures。
-
-与 PLAN.md 4.2 节一致：
-- 内存 SQLite 测试数据库
-- FastAPI TestClient（通过 httpx.AsyncClient）
-- 依赖覆盖（get_db → 测试 DB）
-"""
-
+"""pytest fixtures：使用隔离的临时数据库，避免污染开发数据。"""
 from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncGenerator
-from typing import Any
+import os
+import sys
+import tempfile
+from pathlib import Path
 
-import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+# 保证 `pytest` 在 backend/ 目录下运行时能 import app
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend.database.connection import Base, get_db
-from backend.main import app
-
-
-# ---------------------------------------------------------------------------
-# 测试数据库 Fixture
-# ---------------------------------------------------------------------------
-
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+# 在 import app 之前设置隔离数据库路径
+_tmp_dir = tempfile.mkdtemp(prefix="interview_test_")
+os.environ["SQLITE_PATH"] = os.path.join(_tmp_dir, "test.db")
+os.environ["LLM_API_KEY"] = ""  # 强制 mock 模式
+os.environ["EMBEDDING_API_KEY"] = ""
 
 
-@pytest_asyncio.fixture(scope="function")
-async def test_engine():
-    """创建内存 SQLite 引擎（每个测试独立）。"""
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    yield engine
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
-    await engine.dispose()
+import pytest  # noqa: E402
 
 
-@pytest_asyncio.fixture(scope="function")
-async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
-    """创建独立测试 DB 会话。"""
-    test_session_factory = async_sessionmaker(
-        bind=test_engine, class_=AsyncSession, expire_on_commit=False
-    )
-    async with test_session_factory() as session:
-        yield session
+@pytest.fixture(scope="session", autouse=True)
+def _init_test_db():
+    """每个会话开始时建表 + 种子索引。"""
+    import asyncio
+    from app.database import init_db
+    from app.services.kb_service import ensure_seed_indexed
+
+    async def _setup():
+        await init_db()
+        await ensure_seed_indexed()
+
+    asyncio.run(_setup())
+    yield
 
 
-# ---------------------------------------------------------------------------
-# HTTP 客户端 Fixture
-# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _clean_users():
+    """每个测试前清空非 seed 数据，避免配额/重复影响。"""
+    import asyncio
+    from app.database import SessionLocal
+    from app.models import Document, Report, Session, WrongAnswer, UserProfile, User
 
+    async def _clean():
+        async with SessionLocal() as session:
+            from sqlalchemy import delete
+            await session.execute(delete(Document).where(Document.is_seed == 0))
+            await session.execute(delete(Report))
+            await session.execute(delete(Session))
+            await session.execute(delete(WrongAnswer))
+            await session.execute(delete(UserProfile))
+            await session.execute(delete(User))
+            await session.commit()
 
-@pytest_asyncio.fixture(scope="function")
-async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
-    """FastAPI TestClient（httpx AsyncClient）。"""
+    asyncio.run(_clean())
+    yield
 
-    async def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-
-    app.dependency_overrides.clear()
-
-
-# ---------------------------------------------------------------------------
-# 辅助 Fixture：注册用户
-# ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture(scope="function")
-async def auth_user(client: AsyncClient) -> dict[str, Any]:
-    """注册一个测试用户并返回 user 信息。"""
-    res = await client.post(
-        "/api/user/register",
-        json={"username": "testuser", "password": "test123456"},
-    )
-    assert res.status_code == 200
-    data = res.json()
-    return {"userId": data["userId"], "username": "testuser"}
-
-
-@pytest_asyncio.fixture(scope="function")
-async def auth_headers(auth_user: dict) -> dict[str, str]:
-    """返回带 X-User-Id 的请求头。"""
-    return {"X-User-Id": str(auth_user["userId"])}

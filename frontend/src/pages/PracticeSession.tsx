@@ -1,251 +1,97 @@
-import React, { useReducer, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
-import { practiceApi } from '@/api/practice';
-import { practiceReducer, initialPracticeState } from '@/reducers/practiceReducer';
-import { usePracticeSSE } from '@/hooks/usePracticeSSE';
-import { useCountdown } from '@/hooks/useCountdown';
-import QuestionCard from '@/components/QuestionCard';
-import AnswerInput from '@/components/AnswerInput';
-import FeedbackPanel from '@/components/FeedbackPanel';
-import DifficultyBadge from '@/components/DifficultyBadge';
-import LoadingDots from '@/components/LoadingDots';
+import { useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { practiceApi, PracticeAnswerResp } from '../api/practice'
 
-const PracticeSession: React.FC = () => {
-  const { sessionId } = useParams<{ sessionId: string }>();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [state, dispatch] = useReducer(practiceReducer, initialPracticeState);
-  const { elapsed, start, stop, formatTime } = useCountdown();
+export default function PracticeSession() {
+  const { sessionId } = useParams<{ sessionId: string }>()
+  const navigate = useNavigate()
+  const [question, setQuestion] = useState('')
+  const [answer, setAnswer] = useState('')
+  const [phase, setPhase] = useState<'answering' | 'thinking' | 'feedback'>('answering')
+  const [feedback, setFeedback] = useState<PracticeAnswerResp | null>(null)
+  const [index, setIndex] = useState(0)
+  const [total, setTotal] = useState(0)
+  const [difficulty, setDifficulty] = useState('medium')
+  const [error, setError] = useState('')
 
-  const topic = (location.state as { topic?: string })?.topic || '';
-
-  // Initialize session
-  useEffect(() => {
-    if (sessionId) {
-      dispatch({
-        type: 'SET_SESSION',
-        payload: { sessionId, topic },
-      });
-    }
-  }, [sessionId, topic]);
-
-  // SSE connection
-  usePracticeSSE(sessionId || '', dispatch);
-
-  // Start timer when question is shown
-  useEffect(() => {
-    if (state.phase === 'answering' && state.currentQuestion) {
-      start();
-    }
-  }, [state.phase, state.currentQuestion, start]);
-
-  const handleSubmitAnswer = useCallback(async () => {
-    if (!state.userAnswer.trim() || !sessionId) return;
-
-    const timeSpent = stop();
-    dispatch({ type: 'SET_TIME_SPENT', payload: timeSpent });
-    dispatch({ type: 'START_SUBMITTING' });
-
+  const submit = async () => {
+    if (!sessionId || !answer.trim()) return
+    const text = answer.trim()
+    setAnswer('')
+    setPhase('thinking')
+    setError('')
     try {
-      await practiceApi.submitAnswer(sessionId, state.userAnswer, timeSpent);
-    } catch (e: unknown) {
-      const err = e as { message?: string };
-      dispatch({ type: 'SET_ERROR', payload: err.message || '提交失败' });
+      const r = await practiceApi.answer(sessionId, text)
+      if (r.finished) {
+        navigate(`/profile`)
+        return
+      }
+      setFeedback(r)
+      setQuestion(r.question)
+      setIndex(r.question_index)
+      setTotal(r.total_rounds)
+      setDifficulty(r.difficulty)
+      setPhase('feedback')
+    } catch (e) {
+      setError((e as Error).message)
+      setPhase('answering')
     }
-  }, [state.userAnswer, sessionId, stop]);
+  }
 
-  const handleSkipQuestion = useCallback(async () => {
-    if (!sessionId) return;
-    dispatch({ type: 'START_SUBMITTING' });
-    try {
-      await practiceApi.skipQuestion(sessionId);
-    } catch (e: unknown) {
-      const err = e as { message?: string };
-      dispatch({ type: 'SET_ERROR', payload: err.message || '操作失败' });
-    }
-  }, [sessionId]);
-
-  const handleNextQuestion = useCallback(async () => {
-    if (!sessionId) return;
-
-    dispatch({ type: 'NEXT_QUESTION' });
-
-    try {
-      await practiceApi.nextQuestion(sessionId);
-    } catch (e: unknown) {
-      const err = e as { message?: string };
-      dispatch({ type: 'SET_ERROR', payload: err.message || '获取题目失败' });
-    }
-  }, [sessionId]);
+  const next = () => setPhase('answering')
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={() => navigate('/history/practice')}
-          className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          退出练习
-        </button>
-        <div className="flex items-center gap-4">
-          {state.maxQuestions > 0 && (
-            <span className="text-sm font-medium text-slate-600 bg-slate-100 px-3 py-1 rounded-full">
-              第 {Math.min(state.questionIndex, state.maxQuestions)}/{state.maxQuestions} 题
-            </span>
-          )}
-          <span className="text-sm text-slate-400">
-            {topic}
-          </span>
+    <div className="max-w-3xl mx-auto space-y-4">
+      <div className="card p-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-gray-800">专项练习</h2>
+          <p className="text-sm text-gray-500">第 {Math.min(index + 1, total || 1)} / {total || '…'} 题</p>
         </div>
+        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${difficulty === 'hard' ? 'bg-red-100 text-red-600' : difficulty === 'easy' ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-700'}`}>
+          {{ easy: '简单', medium: '中等', hard: '困难' }[difficulty] || difficulty}
+        </span>
       </div>
 
-      {/* Completed banner */}
-      {state.completed && state.phase === 'feedback_shown' && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-2xl text-center">
-          <p className="text-green-700 font-medium">🎉 本会话已完成！共 {state.maxQuestions} 题</p>
-          <button
-            onClick={() => navigate(`/history/practice/${sessionId}`)}
-            className="mt-2 text-sm text-green-600 hover:underline"
-          >
-            查看历史记录
-          </button>
-        </div>
-      )}
-
-      {/* Difficulty Indicator */}
-      {state.currentQuestion && (
-        <div className="mb-6">
-          <DifficultyBadge
-            difficulty={state.difficulty}
-            questionIndex={state.questionIndex}
-            consecutiveCorrect={state.consecutiveCorrect}
-            consecutiveWrong={state.consecutiveWrong}
-          />
-        </div>
-      )}
-
-      {/* Timer */}
-      {state.phase === 'answering' && (
-        <div className="flex items-center justify-end mb-4">
-          <span className="text-sm text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
-            ⏱ {formatTime(elapsed)}
-          </span>
-        </div>
-      )}
-
-      {/* Loading state */}
-      {state.phase === 'loading_question' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 flex flex-col items-center justify-center">
-          <LoadingDots text="AI 正在生成题目" className="mb-3" />
-          {state.streamingContent && (
-            <div className="mt-4 text-sm text-slate-500 max-w-md text-center">
-              {state.streamingContent.slice(0, 100)}...
+      <div className="card p-6">
+        <div className="text-lg font-medium text-gray-800 mb-4">{question || '正在加载题目…'}</div>
+        {phase === 'feedback' && feedback && (
+          <div className="space-y-4">
+            <div className="flex items-center space-x-3">
+              <span className="text-3xl font-bold text-purple-600">{feedback.score}</span>
+              <span className="text-gray-500">/ 10 分</span>
+              {feedback.is_correct ? (
+                <span className="badge-easy px-2 py-1 rounded-full text-xs font-semibold">回答正确</span>
+              ) : (
+                <span className="badge-hard px-2 py-1 rounded-full text-xs font-semibold">需要加强</span>
+              )}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Question — shown during answering, submitting, and feedback */}
-      {(state.phase === 'answering' || state.phase === 'submitting' || state.phase === 'feedback_shown') &&
-        state.currentQuestion && (
-          <div className="mb-6">
-            <QuestionCard
-              question={state.currentQuestion}
-              questionIndex={state.questionIndex}
-            />
-          </div>
-      )}
-
-      {/* Answer Input */}
-      {state.phase === 'answering' && (
-        <>
-          <AnswerInput
-            value={state.userAnswer}
-            onChange={(value) => dispatch({ type: 'SET_USER_ANSWER', payload: value })}
-            onSubmit={handleSubmitAnswer}
-            disabled={false}
-            loading={false}
-          />
-          <div className="flex justify-center mt-3">
-            <button
-              onClick={handleSkipQuestion}
-              className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              不了解，查看参考答案
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* Submitting */}
-      {state.phase === 'submitting' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
-          <LoadingDots text="AI 正在评估你的答案" className="justify-center mb-3" />
-          {state.streamingContent && (
-            <div className="mt-4 p-4 bg-slate-50 rounded-xl text-left">
-              <div className="text-sm text-slate-600 whitespace-pre-wrap">
-                {state.streamingContent}
+            <div className="text-sm text-gray-600 bg-gray-50 rounded-xl p-4">{feedback.feedback}</div>
+            {feedback.reference && (
+              <div className="text-sm">
+                <div className="font-semibold text-gray-700 mb-1">💯 参考答案</div>
+                <div className="text-gray-600 whitespace-pre-wrap">{feedback.reference}</div>
               </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Feedback: Your Answer + Reference Answer + Next */}
-      {state.phase === 'feedback_shown' && state.feedback && (
-        <div className="space-y-4">
-          {/* User's Answer */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <h4 className="font-semibold text-slate-800 mb-3">📝 你的答案</h4>
-            <div className="text-sm text-slate-600 whitespace-pre-wrap">
-              {state.userAnswer || '(未作答)'}
-            </div>
-          </div>
-
-          {/* Reference Answer */}
-          <FeedbackPanel feedback={state.feedback} />
-
-          <div className="flex justify-center pt-2">
-            {state.completed ? (
-              <button
-                onClick={() => navigate('/')}
-                className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-xl transition-all duration-200 active:scale-95 shadow-sm"
-              >
-                完成
-              </button>
-            ) : (
-              <button
-                onClick={handleNextQuestion}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-xl transition-all duration-200 active:scale-95 shadow-sm"
-              >
-                下一题
-                <ArrowRight className="w-4 h-4" />
-              </button>
             )}
+            <button className="btn-primary" onClick={next}>下一题</button>
           </div>
-        </div>
-      )}
+        )}
+        {phase === 'thinking' && <div className="text-sm text-gray-500">正在评分…</div>}
+      </div>
 
-      {/* Error */}
-      {state.phase === 'error' && state.error && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-          <p className="text-red-600 mb-4">{state.error}</p>
-          <button
-            onClick={() => {
-              dispatch({ type: 'NEXT_QUESTION' });
-              handleNextQuestion();
-            }}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm transition-colors"
-          >
-            重试
-          </button>
+      {error && <div className="text-sm text-red-500">{error}</div>}
+
+      {phase !== 'feedback' && (
+        <div className="card p-4 flex space-x-3">
+          <textarea
+            className="input-field flex-1 min-h-[60px]"
+            placeholder="输入你的回答…"
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            disabled={phase !== 'answering'}
+          />
+          <button className="btn-primary self-end" onClick={submit} disabled={phase !== 'answering'}>提交</button>
         </div>
       )}
     </div>
-  );
-};
-
-export default PracticeSession;
+  )
+}

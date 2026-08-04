@@ -1,52 +1,73 @@
-// Interview mode API functions
+import { api } from './client'
 
-import api from './client';
-import type {
-  InterviewReport,
-  InterviewSessionDetail,
-  InterviewSessionSummary,
-} from '@/types/interview';
-
-export interface InterviewCreateRequest {
-  jd: string;
-  resume: string;
-  total_rounds: number;
+export interface InterviewStartReq {
+  jd_text: string
+  resume_text?: string
+  total_rounds?: number
+  difficulty?: string
 }
 
-export interface InterviewCreateResponse {
-  sessionId: string;
+export interface InterviewAnswerReq {
+  session_id: string
+  answer: string
 }
 
-export interface InterviewStatusResponse {
-  currentRound: number;
-  totalRounds: number;
-  phase: string;
+export interface InterviewStartResp {
+  session_id: string
+  question: string
+  question_index: number
+  total_rounds: number
+  difficulty: string
+  jd_title: string
+}
+
+export interface InterviewReport {
+  overall_score: number
+  recommendation: string
+  dimension_scores: Record<string, number>
+  strengths: string[]
+  weaknesses: string[]
+  highlights: Array<{ round: number; reason: string }>
+  concerns: string[]
+  topic_performance: Array<{ topic: string; performance: string; comment: string }>
+  summary: string
+  interviewer_comment: string
+}
+
+export interface StudyPlan {
+  overall_advice: string
+  weeks: Array<{ week: number; theme: string; goals: string[]; daily_hours: number; resources: string[] }>
+  practice_projects: string[]
+  mock_interview_tips: string[]
+}
+
+export interface InterviewAnswerResp {
+  session_id: string
+  interview_finished: boolean
+  should_followup: boolean
+  question: string
+  question_index: number
+  total_rounds: number
+  difficulty: string
+  score?: number
+  final_report?: InterviewReport | null
+  study_plan?: StudyPlan | null
+}
+
+export interface HistoryItem {
+  session_id: string
+  mode: string
+  status: string
+  created_at: string | null
+  summary: Record<string, unknown>
 }
 
 export const interviewApi = {
-  create: (data: InterviewCreateRequest) =>
-    api.post<InterviewCreateResponse>('/interview/create', data),
-
-  submitAnswer: (sessionId: string, answer: string) =>
-    api.post<void>(`/interview/${sessionId}/answer`, { answer }),
-
-  getReport: (sessionId: string) =>
-    api.get<InterviewReport>(`/interview/${sessionId}/report`),
-
-  getStatus: (sessionId: string) =>
-    api.get<InterviewStatusResponse>(`/interview/${sessionId}/status`),
-
-  getStreamUrl: (sessionId: string) =>
-    `/interview/${sessionId}/stream`,
-
-  getHistory: (page: number = 1, limit: number = 20) =>
-    api.get<{ records: InterviewSessionSummary[]; total: number; page: number }>(
-      `/history/interview?page=${page}&limit=${limit}`
+  start: (body: InterviewStartReq) => api.post<InterviewStartResp>('/interview/start', body),
+  answer: (body: InterviewAnswerReq) => api.post<InterviewAnswerResp>('/interview/answer', body),
+  report: (sessionId: string) =>
+    api.get<{ session_id: string; mode: string; final_report: InterviewReport; study_plan?: StudyPlan }>(
+      `/interview/report/${sessionId}`,
     ),
-
-  getSessionDetail: (interviewId: string) =>
-    api.get<InterviewSessionDetail>(`/history/interview/${interviewId}`),
-
-  deleteSession: (sessionId: string) =>
-    api.delete<void>(`/history/interview/${sessionId}`),
-};
+  history: () => api.get<{ ok: boolean; items: HistoryItem[] }>('/interview/history'),
+}

@@ -1,106 +1,78 @@
-// HTTP client wrapper with fetch
+// API 客户端：baseURL 指向平台前缀 /app/{slug}/api
+// 身份：平台登录后 JWT 存在 localStorage 的 access_token / refresh_token
+// 本地开发：Vite 代理 /app/interview-agent/api → 后端 8002，无平台头时后端用 DEV_USER
 
-const BASE_URL = '/api';
-
-function getUserId(): string | null {
-  return localStorage.getItem('userId');
-}
-
-interface RequestOptions {
-  method?: string;
-  headers?: Record<string, string>;
-  body?: unknown;
-  timeout?: number;
-}
+const SLUG = 'interview-agent'
+export const API_BASE = `/app/${SLUG}/api`
 
 export class ApiError extends Error {
-  code: string;
-  status: number;
-
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.status = status;
-    this.code = code;
-    this.name = 'ApiError';
+  status: number
+  code: string
+  constructor(status: number, message: string, code = 'UNKNOWN') {
+    super(message)
+    this.status = status
+    this.code = code
   }
 }
 
-async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, timeout = 30000 } = options;
-
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const accessToken = localStorage.getItem('access_token')
   const headers: Record<string, string> = {
-    ...(options.headers || {}),
-  };
-  // 仅当 body 不是 FormData 时设置 JSON Content-Type
-  if (!(body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
+    Accept: 'application/json',
   }
-
-  const userId = getUserId();
-  if (userId && !headers['X-User-Id']) {
-    headers['X-User-Id'] = userId;
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`
   }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
+  const opts: RequestInit = { method, headers }
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json'
+    opts.body = JSON.stringify(body)
+  }
+  let res: Response
   try {
-    const response = await fetch(`${BASE_URL}${endpoint}`, {
-      method,
-      headers,
-      body: body instanceof FormData ? body : (body ? JSON.stringify(body) : undefined),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({
-        code: 'UNKNOWN',
-        message: `HTTP ${response.status}`,
-      }));
-      throw new ApiError(
-        response.status,
-        errorData.code || 'UNKNOWN',
-        errorData.message || `请求失败 (${response.status})`
-      );
-    }
-
-    const data = await response.json();
-    return data as T;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error instanceof ApiError) {
-      throw error;
-    }
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new ApiError(0, 'TIMEOUT', '请求超时，请重试');
-    }
-    throw new ApiError(0, 'NETWORK_ERROR', '网络连接失败，请检查网络');
+    res = await fetch(`${API_BASE}${path}`, opts)
+  } catch {
+    throw new ApiError(0, '网络连接失败', 'NETWORK_ERROR')
   }
+  if (res.status === 401) {
+    // 平台未登录 → 跳转平台登录页
+    window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
+    throw new ApiError(401, '请先登录', 'UNAUTHORIZED')
+  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      (data as { message?: string }).message || '请求失败',
+      (data as { code?: string }).code || 'UNKNOWN',
+    )
+  }
+  return data as T
 }
 
 export const api = {
-  get: <T>(endpoint: string, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'GET' }),
-
-  post: <T>(endpoint: string, body?: unknown, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'POST', body }),
-
-  put: <T>(endpoint: string, body?: unknown, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'PUT', body }),
-
-  delete: <T>(endpoint: string, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'DELETE' }),
-
-  upload: <T>(endpoint: string, formData: FormData, options?: RequestOptions) => {
-    const headers: Record<string, string> = {};
-    const userId = getUserId();
-    if (userId) headers['X-User-Id'] = userId;
-    // 不设 Content-Type，让浏览器自动生成 multipart boundary
-    const mergedOptions = { ...options, method: 'POST' as const, body: formData, headers };
-    return request<T>(endpoint, mergedOptions);
+  get: <T>(path: string) => request<T>('GET', path),
+  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
+  del: <T>(path: string) => request<T>('DELETE', path),
+  upload: async <T>(path: string, formData: FormData): Promise<T> => {
+    const accessToken = localStorage.getItem('access_token')
+    const headers: Record<string, string> = {}
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    let res: Response
+    try {
+      res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: formData })
+    } catch {
+      throw new ApiError(0, '网络连接失败', 'NETWORK_ERROR')
+    }
+    if (res.status === 401) {
+      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
+      throw new ApiError(401, '请先登录', 'UNAUTHORIZED')
+    }
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new ApiError(res.status, (data as { message?: string }).message || '上传失败', 'UPLOAD_ERROR')
+    }
+    return data as T
   },
-};
-
-export default api;
+}

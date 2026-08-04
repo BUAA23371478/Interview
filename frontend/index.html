@@ -2,9 +2,60 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI 智能刷题与模拟面试</title>
+    <title>AI 面试智能体</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+      }
+      .card {
+        backdrop-filter: blur(10px);
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 20px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 12px;
+        padding: 10px 24px;
+        font-weight: 600;
+        transition: opacity 0.2s;
+      }
+      .btn-primary:hover { opacity: 0.9; }
+      .btn-ghost {
+        border: 1px solid #d1d5db;
+        border-radius: 12px;
+        padding: 10px 24px;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+      .btn-ghost:hover { border-color: #667eea; color: #667eea; }
+      .input-field {
+        width: 100%;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 10px 14px;
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      .input-field:focus { border-color: #667eea; }
+      .skill-tag {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .badge-easy { background: #dcfce7; color: #16a34a; }
+      .badge-medium { background: #fef3c7; color: #d97706; }
+      .badge-hard { background: #fee2e2; color: #dc2626; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

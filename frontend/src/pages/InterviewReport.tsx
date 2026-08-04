@@ -1,268 +1,95 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Star, TrendingUp, AlertTriangle, Lightbulb, MessageSquare } from 'lucide-react';
-import { interviewApi } from '@/api/interview';
-import type { InterviewReport as InterviewReportType } from '@/types/interview';
-import ScoreBar from '@/components/ScoreBar';
-import RadarChartView from '@/components/RadarChart';
-import LoadingDots from '@/components/LoadingDots';
-import MarkdownContent from '@/utils/markdown';
+import { useEffect, useState } from 'react'
+import { useParams } from 'react-router-dom'
+import { interviewApi, InterviewReport as ReportType, StudyPlan } from '../api/interview'
+import RadarChart from '../components/RadarChart'
 
-/** 把后端 snake_case 报告映射为前端 camelCase */
-function mapReport(r: Record<string, unknown>): InterviewReportType {
-  return {
-    overallScore: (r.overall_score as number) ?? (r.overallScore as number) ?? 0,
-    dimensions: {
-      techDepth: (r.tech_depth as number) ?? (r.techDepth as number) ?? 0,
-      clarity: (r.clarity as number) ?? 0,
-      logic: (r.logic as number) ?? 0,
-      jobMatch: (r.job_match as number) ?? (r.jobMatch as number) ?? 0,
-    },
-    overallComment: (r.overall_comment as string) ?? (r.overallComment as string) ?? '',
-    roundReviews: (r.round_reviews as RoundReview[]) ?? (r.roundReviews as RoundReview[]) ?? [],
-    highlights: (r.highlights as Highlight[]) ?? [],
-    weaknesses: (r.weaknesses as string[]) ?? [],
-    suggestions: (r.suggestions as string[]) ?? [],
-  };
+const REC_LABEL: Record<string, string> = {
+  strong_hire: '强烈推荐',
+  hire: '推荐',
+  weak_hire: '勉强',
+  no_hire: '不推荐',
 }
 
-const InterviewReport: React.FC = () => {
-  const { sessionId } = useParams<{ sessionId: string }>();
-  const navigate = useNavigate();
-  const [report, setReport] = useState<InterviewReportType | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+export default function InterviewReport() {
+  const { sessionId } = useParams<{ sessionId: string }>()
+  const [report, setReport] = useState<ReportType | null>(null)
+  const [plan, setPlan] = useState<StudyPlan | null>(null)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId) return
+    interviewApi.report(sessionId).then((d) => {
+      setReport(d.final_report)
+      setPlan(d.study_plan ?? null)
+    }).catch((e) => setError((e as Error).message))
+  }, [sessionId])
 
-    const fetchReport = async () => {
-      try {
-        let retries = 0;
-        while (retries < 10) {
-          try {
-            const raw = await interviewApi.getReport(sessionId);
-            // API 返回 { sessionId, report: { overall_score, ... } }
-            const r = (raw as Record<string, unknown>)?.report || raw;
-            const mapped = mapReport(r as Record<string, unknown>);
-            setReport(mapped);
-            setLoading(false);
-            return;
-          } catch {
-            retries++;
-            await new Promise((r) => setTimeout(r, 2000));
-          }
-        }
-        throw new Error('报告生成超时');
-      } catch (e: unknown) {
-        setError((e as { message?: string }).message || '获取报告失败');
-        setLoading(false);
-      }
-    };
+  if (error) return <div className="text-red-500">{error}</div>
+  if (!report) return <div className="text-center text-gray-500 py-12">报告生成中…</div>
 
-    fetchReport();
-  }, [sessionId]);
-
-  if (loading) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-        <LoadingDots text="正在加载复盘报告" className="justify-center mb-4" />
-        <p className="text-sm text-slate-400">报告正在生成中，请稍候...</p>
-      </div>
-    );
-  }
-
-  if (error || !report) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-6">
-          <p className="text-red-600 mb-4">{error || '报告未找到'}</p>
-          <button
-            onClick={() => navigate('/history/interview')}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm transition-colors"
-          >
-            返回历史记录
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const { overallScore, dimensions, overallComment, roundReviews, highlights, weaknesses, suggestions } = report;
+  const dims = report.dimension_scores || {}
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6 pb-16">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => navigate('/history/interview')}
-          className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          返回历史记录
-        </button>
-      </div>
-
-      {/* Title */}
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-slate-800">模拟面试复盘报告</h1>
-      </div>
-
-      {/* Overall Score */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center">
-        <p className="text-sm text-slate-500 mb-3">总体评分</p>
-        <div className="text-5xl font-bold text-primary-600 mb-2">{overallScore}</div>
-        <p className="text-sm text-slate-400">/ 100</p>
-        <div className="w-48 h-3 bg-slate-100 rounded-full overflow-hidden mx-auto mt-3">
-          <div
-            className={`h-full rounded-full transition-all duration-1000 ${
-              overallScore >= 80 ? 'bg-green-500' : overallScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-            }`}
-            style={{ width: `${overallScore}%` }}
-          />
+    <div className="space-y-6">
+      <div className="card p-6 flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">面试评估报告</h2>
+          <p className="text-sm text-gray-500">综合评分 {report.overall_score}/100 · {REC_LABEL[report.recommendation] || report.recommendation}</p>
         </div>
-        <p className="text-sm text-slate-500 mt-2">
-          {overallScore >= 85 ? '优秀' : overallScore >= 70 ? '良好' : overallScore >= 60 ? '一般' : '需加强'}
-        </p>
-      </div>
-
-      {/* Dimension Scores */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary-500" />
-            各维度评分
-          </h3>
-          <ScoreBar label="技术深度" score={dimensions.techDepth} />
-          <ScoreBar label="表达清晰度" score={dimensions.clarity} />
-          <ScoreBar label="逻辑性" score={dimensions.logic} />
-          <ScoreBar label="岗位匹配度" score={dimensions.jobMatch} />
+        <div className="w-56 h-56">
+          <RadarChart scores={dims} />
         </div>
-        <RadarChartView scores={dimensions} />
       </div>
 
-      {/* Overall Comment */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <h3 className="font-semibold text-slate-800 flex items-center gap-2 mb-3">
-          <MessageSquare className="w-5 h-5 text-primary-500" />
-          整体评价
-        </h3>
-        <MarkdownContent content={overallComment} />
+      <div className="card p-6">
+        <h3 className="font-bold text-gray-800 mb-3">总体评价</h3>
+        <p className="text-sm text-gray-600">{report.summary}</p>
+        <p className="mt-3 text-sm text-gray-500">面试官评语：{report.interviewer_comment}</p>
       </div>
 
-      {/* Round Reviews */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <h3 className="font-semibold text-slate-800 mb-4">各轮回顾</h3>
-        <div className="space-y-4">
-          {roundReviews.map((review) => (
-            <div
-              key={review.round}
-              className="p-4 rounded-xl bg-slate-50 border border-slate-100"
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="inline-flex items-center justify-center w-6 h-6 bg-primary-100 text-primary-700 rounded-full text-xs font-semibold">
-                  {review.round}
-                </span>
-                <span className="text-sm font-medium text-slate-700">第 {review.round} 轮</span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="card p-6">
+          <h3 className="font-bold text-gray-800 mb-3">✅ 优势</h3>
+          <ul className="space-y-1 text-sm text-gray-600">
+            {report.strengths.map((s, i) => <li key={i}>• {s}</li>)}
+          </ul>
+          <h3 className="font-bold text-gray-800 mt-4 mb-3">⚠️ 待加强</h3>
+          <ul className="space-y-1 text-sm text-gray-600">
+            {report.weaknesses.map((s, i) => <li key={i}>• {s}</li>)}
+          </ul>
+        </div>
+        <div className="card p-6">
+          <h3 className="font-bold text-gray-800 mb-3">📊 维度评分</h3>
+          {Object.entries(dims).map(([k, v]) => (
+            <div key={k} className="flex items-center space-x-2 mb-2">
+              <span className="w-32 text-sm text-gray-600">{k}</span>
+              <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-purple-500 to-indigo-600" style={{ width: `${v * 10}%` }} />
               </div>
-              <p className="text-sm text-slate-500 mb-2">
-                <strong className="text-slate-600">问题：</strong>
-                {review.question.length > 100
-                  ? review.question.slice(0, 100) + '...'
-                  : review.question}
-              </p>
-              {review.answerSummary && (
-                <p className="text-sm text-slate-500 mb-2">
-                  <strong className="text-slate-600">回答摘要：</strong>
-                  {review.answerSummary}
-                </p>
-              )}
-              <p className="text-sm text-slate-500">
-                <strong className="text-slate-600">点评：</strong>
-                {review.comment}
-              </p>
+              <span className="text-sm font-semibold text-purple-600">{v}</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Highlights */}
-      {highlights.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <h3 className="font-semibold text-slate-800 flex items-center gap-2 mb-4">
-            <Star className="w-5 h-5 text-yellow-500" />
-            优秀回答摘录
-          </h3>
-          <div className="space-y-3">
-            {highlights.map((h, i) => (
-              <div
-                key={i}
-                className="p-4 rounded-xl bg-yellow-50 border border-yellow-100 flex items-start gap-3"
-              >
-                <Star className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                <div>
-                  <span className="text-xs font-medium text-yellow-600">第 {h.round} 轮</span>
-                  <p className="text-sm text-slate-600 mt-1">{h.reason}</p>
-                </div>
+      {plan && (
+        <div className="card p-6">
+          <h3 className="font-bold text-gray-800 mb-3">📅 4 周复习计划</h3>
+          <p className="text-sm text-gray-500 mb-4">{plan.overall_advice}</p>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {plan.weeks.map((w) => (
+              <div key={w.week} className="border rounded-xl p-4">
+                <div className="text-xs font-bold text-purple-600">第 {w.week} 周</div>
+                <div className="font-semibold text-gray-800 mt-1">{w.theme}</div>
+                <ul className="text-xs text-gray-500 mt-2 space-y-1">
+                  {w.goals.map((g, i) => <li key={i}>• {g}</li>)}
+                </ul>
+                <div className="text-xs text-gray-400 mt-2">每天 {w.daily_hours}h</div>
               </div>
             ))}
           </div>
         </div>
       )}
-
-      {/* Weaknesses */}
-      {weaknesses.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <h3 className="font-semibold text-slate-800 flex items-center gap-2 mb-4">
-            <AlertTriangle className="w-5 h-5 text-orange-500" />
-            待加强方向
-          </h3>
-          <ul className="space-y-2">
-            {weaknesses.map((w, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-slate-600">
-                <span className="text-orange-400 mt-0.5">⚠</span>
-                {w}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Suggestions */}
-      {suggestions.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <h3 className="font-semibold text-slate-800 flex items-center gap-2 mb-4">
-            <Lightbulb className="w-5 h-5 text-green-500" />
-            改进建议
-          </h3>
-          <ul className="space-y-2">
-            {suggestions.map((s, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-slate-600">
-                <span className="text-green-500 mt-0.5">✓</span>
-                {s}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex justify-center gap-3 pt-4">
-        <button
-          onClick={() => navigate('/interview')}
-          className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-xl transition-colors"
-        >
-          再来一次面试
-        </button>
-        <button
-          onClick={() => navigate('/')}
-          className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors"
-        >
-          返回首页
-        </button>
-      </div>
     </div>
-  );
-};
-
-export default InterviewReport;
+  )
+}
