@@ -163,6 +163,18 @@ interview/
 └── README.md
 ```
 
-> 参考来源：[AI_InterviewerAgent](参考项目/AI_InterviewerAgent/)（多 Agent + 混合 RAG + 记忆系统）、
-> [interview-practice](参考项目/interview-practice/)（复盘报告 + 错题本）、
-> [agent-interview-hub](https://github.com/zchary1106/agent-interview-hub)（知识库内容）。
+---
+
+## 🙏 参考项目与致谢
+
+本项目在设计与实现上参考了以下开源项目，在此致谢：
+
+| 参考项目 | 贡献点 | 仓库 |
+|---------|--------|------|
+| **AI_InterviewerAgent** | 多 Agent 协作编排、混合检索 RAG（向量 + BM25 + RRF）、Redis/MySQL 双引擎记忆、难度状态机、Skill 技能系统 | [BMN-zyb/AI_InterviewerAgent](https://github.com/BMN-zyb/AI_InterviewerAgent) |
+| **interview-practice** | 简历驱动的个性化出题、复盘报告格式、追问与评分流程、错题本与学习笔记闭环 | [guijiamin/interview-practice](https://github.com/guijiamin/interview-practice) |
+| **agent-interview-hub** | 知识库内容来源：300+ 带答案面试题、14 家公司岗位要求与面经、深度技术文档 | [zchary1106/agent-interview-hub](https://github.com/zchary1106/agent-interview-hub) · [在线知识库](https://zchary1106.github.io/agent-interview-hub/) |
+
+> 参考项目源码存放于本地 `参考项目/` 目录（不进版本库），用于开发期对照。本项目在其基础上
+> 新增了 **MAOO 平台用户系统集成**、**服务器端知识库 + UGC 上传审核机制**（AI 预审 + 管理员复核 +
+> 防污染）以及**生产级部署封装**。
