@@ -162,10 +162,16 @@ class MockLLM:
 
 
 class UnifiedLLMClient:
-    """统一 LLM 客户端：真实 OpenAI 兼容接口 + mock 回退。"""
+    """统一 LLM 客户端：真实 OpenAI 兼容接口 + mock 回退。
+
+    支持两种调用模式（由 LLM_RESPONSES_MODE 切换）：
+    - chat.completions（默认）：OpenAI 兼容，DeepSeek 的 deepseek-chat
+    - responses：DeepSeek Responses API，deepseek-v4-flash
+    """
 
     def __init__(self) -> None:
         self._client: Optional[Any] = None
+        self._responses_client: Optional[Any] = None
         self._max_retries = 3
 
     @property
@@ -173,7 +179,7 @@ class UnifiedLLMClient:
         return bool(settings.llm_api_key)
 
     def _get_client(self) -> Any:
-        """惰性创建 OpenAI 客户端。"""
+        """惰性创建 OpenAI 客户端（chat.completions 模式）。"""
         if self._client is None:
             from openai import AsyncOpenAI
             self._client = AsyncOpenAI(
@@ -184,6 +190,22 @@ class UnifiedLLMClient:
             )
         return self._client
 
+    def _get_responses_client(self) -> Any:
+        """惰性创建 Responses API 客户端（deepseek-v4-flash）。"""
+        if self._responses_client is None:
+            from openai import AsyncOpenAI
+            self._responses_client = AsyncOpenAI(
+                api_key=settings.llm_api_key,
+                base_url=settings.llm_responses_base_url,
+                timeout=60.0,
+                max_retries=0,
+            )
+        return self._responses_client
+
+    @property
+    def _mode_label(self) -> str:
+        return "responses" if settings.llm_responses_mode else "chat.completions"
+
     async def chat(self, system_prompt: str, user_prompt: str,
                    *, temperature: Optional[float] = None,
                    max_tokens: Optional[int] = None) -> str:
@@ -193,6 +215,15 @@ class UnifiedLLMClient:
         last_err: Optional[Exception] = None
         for attempt in range(self._max_retries):
             try:
+                if settings.llm_responses_mode:
+                    resp = await self._get_responses_client().responses.create(
+                        model=settings.llm_responses_model,
+                        instructions=system_prompt,
+                        input=user_prompt,
+                        temperature=temperature,
+                        max_output_tokens=max_tokens or settings.llm_max_tokens,
+                    )
+                    return getattr(resp, "output_text", "") or ""
                 resp = await self._get_client().chat.completions.create(
                     model=settings.llm_model,
                     messages=[
@@ -206,7 +237,7 @@ class UnifiedLLMClient:
             except Exception as e:  # noqa: BLE001
                 last_err = e
                 await asyncio.sleep(min(2 ** attempt, 8))
-        logger.error("LLM chat 失败（重试 {} 次）: {}", self._max_retries, last_err)
+        logger.error("LLM {} chat 失败（重试 {} 次）: {}", self._mode_label, self._max_retries, last_err)
         raise LLMError(str(last_err))
 
     async def chat_stream(self, system_prompt: str, user_prompt: str,
@@ -219,6 +250,21 @@ class UnifiedLLMClient:
             return
         temperature = temperature if temperature is not None else settings.llm_temperature
         try:
+            if settings.llm_responses_mode:
+                stream = await self._get_responses_client().responses.create(
+                    model=settings.llm_responses_model,
+                    instructions=system_prompt,
+                    input=user_prompt,
+                    temperature=temperature,
+                    max_output_tokens=max_tokens or settings.llm_max_tokens,
+                    stream=True,
+                )
+                async for event in stream:
+                    if getattr(event, "type", "") == "response.output_text.delta":
+                        delta = getattr(event, "delta", "")
+                        if delta:
+                            yield delta
+                return
             stream = await self._get_client().chat.completions.create(
                 model=settings.llm_model,
                 messages=[
@@ -234,7 +280,7 @@ class UnifiedLLMClient:
                 if delta:
                     yield delta
         except Exception as e:  # noqa: BLE001
-            logger.error("LLM 流式调用失败: {}", e)
+            logger.error("LLM {} 流式调用失败: {}", self._mode_label, e)
             raise LLMError(str(e))
 
     async def chat_with_json(self, system_prompt: str, user_prompt: str,
@@ -248,6 +294,14 @@ class UnifiedLLMClient:
         if not self.enabled:
             return {"ok": False, "model": "mock", "error": "未配置 LLM_API_KEY，运行在模拟模式"}
         try:
+            if settings.llm_responses_mode:
+                resp = await self._get_responses_client().responses.create(
+                    model=settings.llm_responses_model,
+                    input="ping",
+                    max_output_tokens=5,
+                )
+                text = getattr(resp, "output_text", "") or ""
+                return {"ok": True, "model": settings.llm_responses_model, "response": text[:50]}
             resp = await self._get_client().chat.completions.create(
                 model=settings.llm_model,
                 messages=[{"role": "user", "content": "ping"}],
@@ -255,7 +309,7 @@ class UnifiedLLMClient:
             )
             return {"ok": True, "model": settings.llm_model, "response": (resp.choices[0].message.content or "")[:50]}
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "model": settings.llm_model, "error": str(e)}
+            return {"ok": False, "model": settings.llm_responses_model if settings.llm_responses_mode else settings.llm_model, "error": str(e)}
 
 
 def parse_json_response(text: str) -> Dict[str, Any]:

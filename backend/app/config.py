@@ -11,10 +11,10 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, List, Optional
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # backend/app/config.py -> backend/ 目录（.env 放在 backend/.env）
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.7
     llm_max_tokens: int = 4096
     llm_json_temperature: float = 0.2
+    # DeepSeek Responses API 模式（deepseek-v4-flash）：true 走 responses.create
+    # base_url 无 /v1 后缀（https://api.deepseek.com），model 用 deepseek-v4-flash
+    llm_responses_mode: bool = False
+    llm_responses_model: str = "deepseek-v4-flash"
+    llm_responses_base_url: str = "https://api.deepseek.com"
 
     # ---- Embedding（OpenAI 兼容 /embeddings）----
     embedding_base_url: str = "https://api.siliconflow.cn/v1"
@@ -103,8 +108,18 @@ class Settings(BaseSettings):
     # 反刷：每人每日上传上限
     kb_daily_upload_limit: int = 5
     kb_daily_char_limit: int = 200_000
-    # 管理员角色（平台角色命中其一即可）
-    admin_roles: tuple = ("admin", "developer")
+    # 管理员角色（平台角色命中其一即可），支持逗号分隔：admin_roles: tuple = ("admin", "developer")
+    admin_roles: Annotated[List[str], NoDecode] = ["admin", "developer"]
+
+    @field_validator("admin_roles", mode="before")
+    @classmethod
+    def _split_admin_roles(cls, v: object) -> object:
+        """把 .env 里的逗号分隔字符串解析成列表。"""
+        if isinstance(v, str):
+            return [s.strip() for s in v.split(",") if s.strip()]
+        if isinstance(v, (list, tuple)):
+            return list(v)
+        return v
 
     # ---- 面试 / 练习 ----
     default_interview_rounds: int = 10

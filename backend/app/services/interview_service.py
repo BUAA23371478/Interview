@@ -157,11 +157,13 @@ async def answer_interview(user: MaooUser, session_id: str, answer: str) -> Dict
     try:
         correctness = score.get("correctness", 0)
         if correctness < 6:
+            key_missing = score.get("key_missing", [])
+            reference = "；".join(str(k) for k in key_missing) if key_missing else ""
             await long_term.record_wrong_answer(
                 user.user_id, session_id,
                 topic=q_item.get("topic", ""),
                 question=q_text, answer=answer,
-                reference=score.get("key_missing", []),
+                reference=reference,
                 score=correctness,
             )
     except Exception as e:  # noqa: BLE001
