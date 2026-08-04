@@ -103,15 +103,18 @@ export default function PracticeSession() {
       {error && <div className="text-sm text-red-500">{error}</div>}
 
       {phase !== 'feedback' && (
-        <div className="card p-4 flex space-x-3">
+        <div className="card p-5">
+          <div className="text-sm font-semibold text-gray-700 mb-2">✍️ 你的回答</div>
           <textarea
-            className="input-field flex-1 min-h-[60px]"
-            placeholder="输入你的回答…"
+            className="input-field w-full min-h-[220px] resize-y leading-relaxed"
+            placeholder="输入你的回答，尽量展开：思路、要点、示例…（可长按拖动调整高度）"
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
             disabled={phase !== 'answering'}
           />
-          <button className="btn-primary self-end" onClick={submit} disabled={phase !== 'answering'}>提交</button>
+          <div className="flex justify-end mt-3">
+            <button className="btn-primary" onClick={submit} disabled={phase !== 'answering'}>提交回答</button>
+          </div>
         </div>
       )}
     </div>

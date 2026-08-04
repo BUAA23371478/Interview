@@ -2,12 +2,17 @@
 统一 LLM 客户端（OpenAI 兼容）。
 
 - 支持 chat / chat_stream / chat_with_json
-- 未配置 API Key 时启用确定性 mock（可离线跑通全流程）
+- LLM key 采用「用户自带 + 服务端回退」模式：
+    1. 请求级 contextvar：前端通过 X-LLM-Key 头带用户自己的 key（BYOK）
+    2. 无用户 key 时回退服务端 settings.llm_api_key
+    3. 都没有且 debug=False（生产）→ 抛出明确提示，引导用户配置
+    4. 都没有且 debug=True（本地开发）→ 内置确定性 mock，可离线跑通
 - 指数退避重试
 """
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import re
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -15,6 +20,16 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from loguru import logger
 
 from app.config import settings
+
+# 请求级 LLM key（BYOK）：依赖层从 X-LLM-Key 请求头注入
+llm_api_key_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_api_key_ctx", default="")
+
+_MOCK_LLM_ERROR = "未配置 LLM API Key：请在右上角「模型设置」填入你自己的 API Key（如 DeepSeek）"
+
+
+def set_llm_key_context(api_key: Optional[str]) -> None:
+    """设置当前请求的 LLM key（由依赖层调用）。"""
+    llm_api_key_ctx.set((api_key or "").strip())
 
 
 class LLMError(Exception):
@@ -162,7 +177,7 @@ class MockLLM:
 
 
 class UnifiedLLMClient:
-    """统一 LLM 客户端：真实 OpenAI 兼容接口 + mock 回退。
+    """统一 LLM 客户端：请求级用户 key（BYOK）+ 服务端 key + mock 回退。
 
     支持两种调用模式（由 LLM_RESPONSES_MODE 切换）：
     - chat.completions（默认）：OpenAI 兼容，DeepSeek 的 deepseek-chat
@@ -173,33 +188,43 @@ class UnifiedLLMClient:
         self._client: Optional[Any] = None
         self._responses_client: Optional[Any] = None
         self._max_retries = 3
+        self._current_key: Optional[str] = None
 
     @property
     def enabled(self) -> bool:
-        return bool(settings.llm_api_key)
+        """当前是否有可用 key（请求级 > 服务端）。"""
+        return bool(self._effective_key())
+
+    def _effective_key(self) -> str:
+        """请求级用户 key 优先，其次服务端 key。"""
+        return llm_api_key_ctx.get() or settings.llm_api_key
 
     def _get_client(self) -> Any:
         """惰性创建 OpenAI 客户端（chat.completions 模式）。"""
-        if self._client is None:
+        key = self._effective_key()
+        if self._client is None or self._current_key != key:
             from openai import AsyncOpenAI
             self._client = AsyncOpenAI(
-                api_key=settings.llm_api_key,
+                api_key=key,
                 base_url=settings.llm_base_url,
                 timeout=60.0,
                 max_retries=0,  # 手动重试
             )
+            self._current_key = key
         return self._client
 
     def _get_responses_client(self) -> Any:
         """惰性创建 Responses API 客户端（deepseek-v4-flash）。"""
-        if self._responses_client is None:
+        key = self._effective_key()
+        if self._responses_client is None or self._current_key != key:
             from openai import AsyncOpenAI
             self._responses_client = AsyncOpenAI(
-                api_key=settings.llm_api_key,
+                api_key=key,
                 base_url=settings.llm_responses_base_url,
                 timeout=60.0,
                 max_retries=0,
             )
+            self._current_key = key
         return self._responses_client
 
     @property
@@ -210,6 +235,9 @@ class UnifiedLLMClient:
                    *, temperature: Optional[float] = None,
                    max_tokens: Optional[int] = None) -> str:
         if not self.enabled:
+            # 生产（debug=False）无 key 时给出明确提示；本地开发（debug=True）回退 mock 便于调试
+            if not settings.debug:
+                raise LLMError(_MOCK_LLM_ERROR)
             return MockLLM.chat(system_prompt, user_prompt)
         temperature = temperature if temperature is not None else settings.llm_temperature
         last_err: Optional[Exception] = None
@@ -245,6 +273,8 @@ class UnifiedLLMClient:
                           max_tokens: Optional[int] = None) -> AsyncGenerator[str, None]:
         """流式返回文本增量。"""
         if not self.enabled:
+            if not settings.debug:
+                raise LLMError(_MOCK_LLM_ERROR)
             async for chunk in MockLLM.chat_stream(system_prompt, user_prompt):
                 yield chunk
             return
@@ -290,19 +320,25 @@ class UnifiedLLMClient:
         text = await self.chat(system_prompt, user_prompt, temperature=temperature)
         return parse_json_response(text)
 
-    async def test_connection(self) -> Dict[str, Any]:
-        if not self.enabled:
-            return {"ok": False, "model": "mock", "error": "未配置 LLM_API_KEY，运行在模拟模式"}
+    async def test_connection(self, api_key: Optional[str] = None) -> Dict[str, Any]:
+        """测试 LLM 连通性。api_key 可选：测试指定 key（前端模型设置用）。"""
+        key = api_key or self._effective_key()
+        if not key:
+            return {"ok": False, "model": "mock", "error": "未配置 API Key"}
         try:
             if settings.llm_responses_mode:
-                resp = await self._get_responses_client().responses.create(
+                from openai import AsyncOpenAI
+                c = AsyncOpenAI(api_key=key, base_url=settings.llm_responses_base_url, timeout=30.0)
+                resp = await c.responses.create(
                     model=settings.llm_responses_model,
                     input="ping",
                     max_output_tokens=5,
                 )
                 text = getattr(resp, "output_text", "") or ""
                 return {"ok": True, "model": settings.llm_responses_model, "response": text[:50]}
-            resp = await self._get_client().chat.completions.create(
+            from openai import AsyncOpenAI
+            c = AsyncOpenAI(api_key=key, base_url=settings.llm_base_url, timeout=30.0)
+            resp = await c.chat.completions.create(
                 model=settings.llm_model,
                 messages=[{"role": "user", "content": "ping"}],
                 max_tokens=5,

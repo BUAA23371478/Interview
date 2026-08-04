@@ -26,4 +26,5 @@ export const authApi = {
   updateProfile: (body: { tech_strengths?: string[]; radar_scores?: Record<string, number> }) =>
     api.put<ProfileData>('/auth/profile', body),
   level: () => api.get<{ maoo_user_id: number; level: string; role: string }>('/auth/level'),
+  testLlm: (apiKey: string) => api.post<{ ok: boolean; model: string; response?: string; error?: string }>('/auth/test-llm', { api_key: apiKey }),
 }

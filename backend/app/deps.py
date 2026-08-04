@@ -5,6 +5,9 @@ MAOO 平台用户依赖。
     X-Maoo-User-Id / X-Maoo-Username / X-Maoo-User-Role / X-Maoo-App-Slug
 
 本地开发（无这些头）时回退到 settings 中的 dev 用户。
+
+LLM BYOK：前端可通过 X-LLM-Key 请求头携带用户自己的 LLM API Key，
+deps 将其注入请求级 contextvar，LLM 客户端每次调用优先使用。
 """
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ from typing import Optional
 from fastapi import Depends, Header, HTTPException
 
 from app.config import settings
+from app.llm import set_llm_key_context
 
 
 @dataclass
@@ -58,15 +62,24 @@ async def get_current_user(
     return None
 
 
-async def require_login(user: Optional[MaooUser] = Depends(get_current_user)) -> MaooUser:
+async def require_login(
+    user: Optional[MaooUser] = Depends(get_current_user),
+    x_llm_key: Optional[str] = Header(default=None),
+) -> MaooUser:
+    """登录依赖：同时把用户的 LLM API Key（BYOK）注入请求级 contextvar。"""
     if user is None:
         raise HTTPException(status_code=401, detail="请先登录")
+    set_llm_key_context(x_llm_key)
     return user
 
 
-async def require_admin(user: Optional[MaooUser] = Depends(get_current_user)) -> MaooUser:
+async def require_admin(
+    user: Optional[MaooUser] = Depends(get_current_user),
+    x_llm_key: Optional[str] = Header(default=None),
+) -> MaooUser:
     if user is None:
         raise HTTPException(status_code=401, detail="请先登录")
+    set_llm_key_context(x_llm_key)
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user

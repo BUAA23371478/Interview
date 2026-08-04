@@ -7,11 +7,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import select
 
 from app.database import get_db
 from app.deps import MaooUser, get_current_user, require_login
+from app.llm import llm_client
 from app.memory import long_term
 from app.models import User
 from app.schemas import ProfileData, ProfileUpdate, UserInfo
@@ -39,6 +40,14 @@ async def get_level(user: MaooUser = Depends(require_login)) -> dict:
     async for db in get_db():
         u = await long_term.get_or_create_user(db, user.user_id, user.username, user.role)
         return {"maoo_user_id": user.user_id, "level": u.level, "role": u.role}
+
+
+@router.post("/test-llm")
+async def test_llm(api_key: str = Body(..., embed=True)) -> dict:
+    """测试用户提供的 LLM API Key 连通性（前端模型设置用）。"""
+    if not api_key:
+        raise HTTPException(status_code=400, detail="请填写 API Key")
+    return await llm_client.test_connection(api_key=api_key)
 
 
 @router.get("/profile", response_model=ProfileData)
