@@ -40,10 +40,14 @@ FastAPI 后端（只监听 127.0.0.1:$PORT）
 | 层 | 技术 |
 |---|---|
 | 后端 | Python 3.11 · FastAPI · SQLAlchemy 2.0 async · SQLite(WAL) / MySQL 可选 |
-| LLM | DeepSeek（OpenAI 兼容）；未配置时**内置 mock** 可离线跑通全流程 |
-| Embedding | bge-m3（SiliconFlow）；未配置时内置确定性 mock 向量 |
+| LLM | 用户自带 Key（BYOK）：OpenAI 兼容（DeepSeek/SiliconFlow），`X-LLM-Key` 头传递，不落库 |
+| Embedding | bge-m3（SiliconFlow 免费额度），知识库检索 |
 | RAG | 混合检索（向量+BM25+RRF）+ 可选 LLM rerank + 中文分块 |
 | 前端 | React 18 + TypeScript + Vite（`base: /app/interview-agent/`）+ Tailwind |
+
+> **LLM 收费策略**：平台不消耗 LLM 额度。用户在前端「个人中心 → 模型设置」填入自己的
+> API Key，随请求头发送。未配置 Key 时 AI 功能明确报错引导配置（无静默 mock）。
+> 知识库嵌入用平台免费额度。
 
 ---
 
@@ -57,11 +61,12 @@ python -m venv .venv
 .venv/Scripts/activate          # Windows；Mac/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 
-# 可选：配置真实 LLM（不配置则用 mock 模式）
 cp .env.example .env
-# 编辑 .env 填入 LLM_API_KEY / EMBEDDING_API_KEY
+# 编辑 .env：
+#   - EMBEDDING_API_KEY 填硅基流动 Key（知识库检索免费额度）
+#   - LLM_API_KEY 可留空（用户自带 Key）；本地调试可临时填入方便测试
 
-# 构建内置知识库（把 /tmp/hub_kb 精选文档复制进 data/kb_seed）
+# 构建内置知识库（把 agent-interview-hub 精选文档复制进 data/kb_seed）
 python scripts/seed_kb.py /path/to/agent-interview-hub
 
 # 启动（监听 8002）
@@ -89,16 +94,18 @@ python -m pytest tests/ -q        # 6 个用例：审核闭环/重复拦截/配�
 
 ---
 
-## 🧪 本地体验（mock 模式）
+## 🧪 本地体验
 
-不配置任何 API Key 即可完整跑通：
+LLM 需用户自带 Key（BYOK）：打开前端 → **个人中心 → 模型设置** → 填你的 DeepSeek/SiliconFlow
+Key → 测试 → 保存。之后：
 
-1. 打开前端 → **模拟面试** → 填 JD（如"招聘 AI Agent 工程师，熟悉 RAG"）+ 简历 → 开始
+1. **模拟面试** → 填 JD（如"招聘 AI Agent 工程师，熟悉 RAG"）+ 简历 → 开始
 2. 逐题回答 → 评分 → 追问 → 报告（雷达图 + 4 周计划）
-3. **知识库** → 搜索"Transformer 自注意力" → 上传文档 → 等待审核
+3. **知识库** → 搜索"Transformer 自注意力"（嵌入用免费额度）→ 上传文档 → 等待审核
 4. 用 admin 身份（`X-Maoo-User-Role: admin` 请求头）访问**审核中心** → 通过 → 可检索
 
-> 填入真实 `LLM_API_KEY` / `EMBEDDING_API_KEY` 后自动切换到真实模型，prompt 完全兼容。
+> 未配置 Key 时，AI 面试/练习会明确报错引导配置（无静默 mock）。Key 仅存于浏览器
+> `localStorage`，随 `X-LLM-Key` 请求头发送，服务器不落库。
 
 ---
 
@@ -112,8 +119,8 @@ bash deploy/build.sh    # 生成 frontend/dist.zip + backend/backend-deploy.zip
 
 1. 平台创建应用（前后端分离，slug=`interview-agent`）
 2. 上传 `dist.zip` + `backend-deploy.zip`
-3. 配置 `LLM_API_KEY` / `EMBEDDING_API_KEY` 等环境变量
-4. 提交审核 → 发布 → 访问 `/app/interview-agent/`
+3. 配置环境变量：`EMBEDDING_API_KEY`（免费嵌入）、`DEBUG=false`（必须）
+4. 提交审核 → 发布 → 访问 `/app/interview-agent/`（用户各自在"模型设置"填自己的 LLM Key）
 
 ---
 
@@ -144,8 +151,8 @@ interview/
 │   ├── app/
 │   │   ├── main.py            # FastAPI 入口（lifespan 建表 + 种子索引）
 │   │   ├── config.py          # pydantic-settings（PORT/LLM/审核阈值）
-│   │   ├── llm.py             # OpenAI 兼容 LLM + mock 回退
-│   │   ├── embedding.py       # 嵌入客户端 + mock 回退
+│   │   ├── llm.py             # OpenAI 兼容 LLM + BYOK 请求级 key
+│   │   ├── embedding.py       # 嵌入客户端（免费额度）
 │   │   ├── deps.py            # X-Maoo-* 用户依赖
 │   │   ├── agents/            # 8 个专职 Agent + 难度 FSM
 │   │   ├── rag/               # loader / vector_store / bm25 / hybrid / engine

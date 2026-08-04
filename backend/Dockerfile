@@ -1,5 +1,6 @@
 # MAOO 平台后端部署镜像（前后端分离 → 后端容器）
-# 平台注入 PORT / BASE_URL / LLM_API_KEY 等环境变量
+# 平台注入 PORT / BASE_URL / EMBEDDING_API_KEY 等环境变量
+# LLM 采用用户自带 Key（BYOK）：服务端不配 LLM_API_KEY，用户经 X-LLM-Key 头自带
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -20,6 +21,8 @@ COPY data ./data
 
 ENV PYTHONPATH=/app
 ENV PORT=9000
+# 生产必须关闭 debug（否则无平台头时回退 dev 用户，存在安全风险）
+ENV DEBUG=false
 
 EXPOSE $PORT
 

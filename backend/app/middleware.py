@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.llm import LLMError
 
 
 def add_middleware(app: FastAPI) -> None:
@@ -47,6 +48,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=500,
             content={"code": "INTERNAL_ERROR", "message": "服务器内部错误"},
+        )
+
+    @app.exception_handler(LLMError)
+    async def llm_error_handler(request: Request, exc: LLMError) -> JSONResponse:  # noqa: ARG001
+        return JSONResponse(
+            status_code=400,
+            content={"code": "LLM_NO_KEY_OR_ERROR", "message": exc.message},
         )
 
 

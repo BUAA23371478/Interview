@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     base_url: str = "/app/interview-agent/"       # 平台访问前缀（静态资源用）
     debug: bool = False
     log_level: str = "INFO"
+    # 测试模式：仅 pytest 使用，未配 key 时走 MockLLM（生产/本地永不开启）
+    test_mode: bool = False
 
     # 本地开发兜底用户（无 X-Maoo-* 请求头时使用，生产必须通过平台注入）
     dev_user_id: int = 1

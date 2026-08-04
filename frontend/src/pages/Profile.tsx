@@ -28,6 +28,7 @@ export default function Profile() {
   const [llmKey, setLlmKey] = useState(getLlmKey())
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState('')
+  const [hasSavedKey, setHasSavedKey] = useState(Boolean(getLlmKey()))
 
   useEffect(() => {
     authApi.profile().then(setProfile).catch(() => {})
@@ -51,9 +52,26 @@ export default function Profile() {
 
   const saveLlmKey = () => {
     const k = llmKey.trim()
-    if (k) localStorage.setItem(LLM_KEY_STORAGE, k)
-    else localStorage.removeItem(LLM_KEY_STORAGE)
-    setTestResult(k ? '已保存 ✅（存于本机浏览器，不会上传服务器）' : '已清除')
+    try {
+      if (k) {
+        localStorage.setItem(LLM_KEY_STORAGE, k)
+        // 写入后回读校验，确保真的保存成功
+        if (localStorage.getItem(LLM_KEY_STORAGE) !== k) {
+          setHasSavedKey(false)
+          setTestResult('⚠️ 保存失败：浏览器拒绝了写入（可能处于无痕/隐私模式或存储被禁用）。Key 不会丢失但本次未保存，请手动记录并稍后重试。')
+          return
+        }
+        setHasSavedKey(true)
+        setTestResult('已保存 ✅（仅存于本机浏览器，不会上传服务器）。注意：清除浏览器数据/无痕模式会丢失，建议妥善保管原 Key。')
+      } else {
+        localStorage.removeItem(LLM_KEY_STORAGE)
+        setHasSavedKey(false)
+        setTestResult('已清除本机保存的 Key')
+      }
+    } catch {
+      setHasSavedKey(false)
+      setTestResult('⚠️ 保存失败：无法写入浏览器存储（无痕模式或存储被禁用）。Key 只在本次页面会话内有效，关闭页面后需重新填写。')
+    }
   }
 
   const testLlm = async () => {
@@ -82,6 +100,13 @@ export default function Profile() {
           本项目不收取费用、不消耗平台配额。使用 AI 能力需自备 LLM Key（支持 DeepSeek / SiliconFlow 等 OpenAI 兼容服务），
           知识库嵌入已由平台提供免费额度。Key 仅存于你本机浏览器，随请求头发送，服务器不落库。
         </p>
+        <div className="mt-3 text-sm">
+          {hasSavedKey ? (
+            <span className="badge-easy px-3 py-1 rounded-full text-xs font-semibold">已保存 Key（本机）</span>
+          ) : (
+            <span className="badge-medium px-3 py-1 rounded-full text-xs font-semibold">未配置 Key（AI 功能不可用）</span>
+          )}
+        </div>
         <div className="flex space-x-3 mt-4">
           <input
             type="password"

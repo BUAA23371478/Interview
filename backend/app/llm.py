@@ -24,7 +24,7 @@ from app.config import settings
 # 请求级 LLM key（BYOK）：依赖层从 X-LLM-Key 请求头注入
 llm_api_key_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_api_key_ctx", default="")
 
-_MOCK_LLM_ERROR = "未配置 LLM API Key：请在右上角「模型设置」填入你自己的 API Key（如 DeepSeek）"
+_NO_KEY_ERROR = "未配置 LLM API Key：请在「个人中心 → 模型设置」填入你自己的 API Key（支持 DeepSeek / SiliconFlow 等 OpenAI 兼容服务）"
 
 
 def set_llm_key_context(api_key: Optional[str]) -> None:
@@ -234,11 +234,12 @@ class UnifiedLLMClient:
     async def chat(self, system_prompt: str, user_prompt: str,
                    *, temperature: Optional[float] = None,
                    max_tokens: Optional[int] = None) -> str:
+        # 测试模式（仅 pytest）：未配 key 时用确定性 mock
         if not self.enabled:
-            # 生产（debug=False）无 key 时给出明确提示；本地开发（debug=True）回退 mock 便于调试
-            if not settings.debug:
-                raise LLMError(_MOCK_LLM_ERROR)
-            return MockLLM.chat(system_prompt, user_prompt)
+            if settings.test_mode:
+                return MockLLM.chat(system_prompt, user_prompt)
+            # 生产/本地：无 key 一律报错，引导用户配置（不降级 mock）
+            raise LLMError(_NO_KEY_ERROR)
         temperature = temperature if temperature is not None else settings.llm_temperature
         last_err: Optional[Exception] = None
         for attempt in range(self._max_retries):
@@ -272,12 +273,13 @@ class UnifiedLLMClient:
                           *, temperature: Optional[float] = None,
                           max_tokens: Optional[int] = None) -> AsyncGenerator[str, None]:
         """流式返回文本增量。"""
+        # 测试模式（仅 pytest）：未配 key 时用确定性 mock
         if not self.enabled:
-            if not settings.debug:
-                raise LLMError(_MOCK_LLM_ERROR)
-            async for chunk in MockLLM.chat_stream(system_prompt, user_prompt):
-                yield chunk
-            return
+            if settings.test_mode:
+                async for chunk in MockLLM.chat_stream(system_prompt, user_prompt):
+                    yield chunk
+                return
+            raise LLMError(_NO_KEY_ERROR)
         temperature = temperature if temperature is not None else settings.llm_temperature
         try:
             if settings.llm_responses_mode:

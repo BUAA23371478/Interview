@@ -12,8 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # 在 import app 之前设置隔离数据库路径
 _tmp_dir = tempfile.mkdtemp(prefix="interview_test_")
 os.environ["SQLITE_PATH"] = os.path.join(_tmp_dir, "test.db")
-os.environ["LLM_API_KEY"] = ""  # 强制 mock 模式
+os.environ["LLM_API_KEY"] = ""  # 不配 key
 os.environ["EMBEDDING_API_KEY"] = ""
+os.environ["TEST_MODE"] = "1"  # 测试模式：未配 key 时 LLM 走确定性 mock
 
 
 import pytest  # noqa: E402

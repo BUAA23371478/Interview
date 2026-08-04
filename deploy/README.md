@@ -50,14 +50,17 @@ bash deploy/build.sh
 
 | 变量 | 说明 | 必填 |
 |------|------|------|
-| `LLM_API_KEY` | DeepSeek API Key | ✅（否则 mock 模式） |
-| `LLM_BASE_URL` | 默认 `https://api.deepseek.com/v1` | 可选 |
-| `LLM_MODEL` | 默认 `deepseek-chat` | 可选 |
-| `EMBEDDING_API_KEY` | SiliconFlow bge-m3 嵌入 Key | 推荐（否则 mock 向量，检索质量下降） |
+| `EMBEDDING_API_KEY` | SiliconFlow bge-m3 嵌入 Key（知识库检索，平台提供免费额度） | ✅ |
 | `EMBEDDING_BASE_URL` | 默认 `https://api.siliconflow.cn/v1` | 可选 |
 | `EMBEDDING_MODEL` | 默认 `BAAI/bge-m3` | 可选 |
-| `MYSQL_HOST` 等 | 平台注入 MySQL（可选，未配置用 SQLite 持久卷） | 可选 |
+| `DEBUG` | **必须为 `false`**（生产）。为 true 时无平台头回退 dev 用户，存在安全风险 | ✅ false |
 | `ADMIN_ROLES` | 管理员角色，默认 `admin,developer` | 可选 |
+| `MYSQL_HOST` 等 | 平台注入 MySQL（可选，未配置用 SQLite 持久卷） | 可选 |
+| `LLM_API_KEY` | 可选。默认**留空**，LLM 由用户自带 Key（BYOK） | 否 |
+
+> **LLM 收费策略**：平台不提供 LLM 额度。用户在前端「个人中心 → 模型设置」填入自己的
+> API Key（DeepSeek / SiliconFlow 等 OpenAI 兼容服务），随 `X-LLM-Key` 请求头发送，服务器不落库。
+> 未配置 Key 时，AI 面试/练习会明确报错引导配置（不会静默 mock）。知识库搜索用嵌入 Key 免费可用。
 
 平台自动注入 `PORT` / `BASE_URL`，后端监听 `$PORT`，无需手动配置。
 
@@ -95,9 +98,22 @@ MAOO 平台不托管数据库实例。两种选择：
 | 7 | 用户身份读 `X-Maoo-User-*` 请求头 | ✅ |
 | 8 | 前端从 localStorage 读平台 JWT 作 `Authorization` | ✅ |
 | 9 | 401 → 跳 `/login?redirect=...` | ✅ |
+| 10 | `DEBUG=false`（生产必需） | ⚠️ 必须确认 |
+| 11 | LLM BYOK：前端带 `X-LLM-Key` 头，无 key 明确报错 | ✅ |
+| 12 | 知识库嵌入用 `EMBEDDING_API_KEY`（免费） | ✅ |
 
 ---
 
-## 八、更新流程
+## 八、LLM BYOK（用户自带 Key）
+
+- 用户路径：**个人中心 → 模型设置 → 填 Key → 测试 → 保存**
+- Key 仅存于浏览器 `localStorage`，随 `X-LLM-Key` 请求头发送，服务器不落库
+- 未配置 Key 时 AI 功能报错引导配置（返回 `code: LLM_NO_KEY_OR_ERROR`）
+- 支持 OpenAI 兼容服务（DeepSeek / SiliconFlow 等），由 `LLM_RESPONSES_MODE` 切换
+  Responses API（`deepseek-v4-flash`）或 chat.completions
+
+---
+
+## 九、更新流程
 
 取消发布 → 回到草稿 → 重新上传两个 zip → 提交审核 → 重新发布。
