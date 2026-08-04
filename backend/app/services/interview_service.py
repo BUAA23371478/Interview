@@ -239,6 +239,30 @@ async def _finish_interview(user: MaooUser, state: Dict[str, Any]) -> Dict[str, 
     }
 
 
+async def get_current_question(user: MaooUser, session_id: str) -> Optional[Dict[str, Any]]:
+    """获取会话当前题目（供前端刷新/直达时恢复）。"""
+    state = _load_session(session_id, user)
+    if not state:
+        return None
+    if state.get("interview_finished"):
+        return {
+            "session_id": session_id, "interview_finished": True,
+            "question": "", "question_index": state.get("current_question_idx", 0),
+            "total_rounds": state.get("total_rounds", 0),
+            "difficulty": state.get("current_difficulty", "medium"),
+            "final_report": state.get("final_report"),
+            "study_plan": state.get("study_plan"),
+        }
+    return {
+        "session_id": session_id, "interview_finished": False,
+        "question": state.get("current_question_text", ""),
+        "should_followup": state.get("should_followup", False),
+        "question_index": state.get("current_question_idx", 0),
+        "total_rounds": state.get("total_rounds", 0),
+        "difficulty": state.get("current_difficulty", "medium"),
+    }
+
+
 async def get_report(user: MaooUser, session_id: str) -> Optional[Dict[str, Any]]:
     state = _load_session(session_id, user)
     if not state:

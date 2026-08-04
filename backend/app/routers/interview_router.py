@@ -31,6 +31,16 @@ async def answer_interview(req: InterviewAnswerRequest,
     return InterviewAnswerResponse(**result)
 
 
+@router.get("/current/{session_id}")
+async def get_current(session_id: str,
+                      user: MaooUser = Depends(require_login)) -> dict:
+    """获取会话当前题目（前端刷新/直达时恢复第一题）。"""
+    data = await interview_service.get_current_question(user, session_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return data
+
+
 @router.get("/report/{session_id}", response_model=ReportResponse)
 async def get_report(session_id: str,
                      user: MaooUser = Depends(require_login)) -> ReportResponse:

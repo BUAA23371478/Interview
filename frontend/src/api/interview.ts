@@ -65,6 +65,8 @@ export interface HistoryItem {
 export const interviewApi = {
   start: (body: InterviewStartReq) => api.post<InterviewStartResp>('/interview/start', body),
   answer: (body: InterviewAnswerReq) => api.post<InterviewAnswerResp>('/interview/answer', body),
+  current: (sessionId: string) =>
+    api.get<InterviewAnswerResp>(`/interview/current/${sessionId}`),
   report: (sessionId: string) =>
     api.get<{ session_id: string; mode: string; final_report: InterviewReport; study_plan?: StudyPlan }>(
       `/interview/report/${sessionId}`,

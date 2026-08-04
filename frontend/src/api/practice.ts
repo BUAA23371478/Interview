@@ -49,6 +49,8 @@ export const practiceApi = {
   start: (body: PracticeStartReq) => api.post<PracticeStartResp>('/practice/start', body),
   answer: (sessionId: string, answer: string) =>
     api.post<PracticeAnswerResp>('/practice/answer', { session_id: sessionId, answer }),
+  current: (sessionId: string) =>
+    api.get<PracticeAnswerResp & { finished: boolean }>(`/practice/current/${sessionId}`),
   report: (sessionId: string) =>
     api.get<{ session_id: string; mode: string; final_report: PracticeReport }>(`/practice/report/${sessionId}`),
   history: () => api.get<{ ok: boolean; items: unknown[] }>('/practice/history'),

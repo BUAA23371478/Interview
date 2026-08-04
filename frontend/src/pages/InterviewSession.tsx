@@ -28,10 +28,34 @@ export default function InterviewSession() {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!sessionId) return
-    // 启动时后端已生成第一题（由 setup 页跳转带来），此处直接拉取会话初始问题
-    // 简单起见：若会话不存在则回到 setup
-    setLoading(false)
+    if (!sessionId) {
+      setError('缺少会话 ID')
+      setLoading(false)
+      return
+    }
+    // 挂载时从后端恢复当前题目（setup 页 start 返回 session_id 后跳转过来）
+    setLoading(true)
+    interviewApi
+      .current(sessionId)
+      .then((r) => {
+        if (r.interview_finished) {
+          navigate(`/interview/report/${sessionId}`)
+          return
+        }
+        setDifficulty(r.difficulty)
+        setQuestionIndex(r.question_index)
+        setTotal(r.total_rounds)
+        if (r.question) {
+          const prefix = r.should_followup ? '🔁 追问：' : ''
+          push('interviewer', `${prefix}${r.question}`)
+        }
+        setLoading(false)
+      })
+      .catch((e) => {
+        setError((e as Error).message)
+        setLoading(false)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
   useEffect(() => {

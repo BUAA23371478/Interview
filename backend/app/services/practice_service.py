@@ -176,6 +176,29 @@ async def _finish_practice(user: MaooUser, state: Dict[str, Any]) -> Dict[str, A
     }
 
 
+async def get_current_question(user: MaooUser, session_id: str) -> Optional[Dict[str, Any]]:
+    """获取会话当前题目（供前端刷新/直达时恢复）。"""
+    state = _load_session(session_id, user)
+    if not state:
+        return None
+    q = state.get("current_question") or {}
+    if state.get("finished"):
+        return {
+            "session_id": session_id, "finished": True,
+            "question": "", "question_index": state.get("question_index", 0),
+            "total_rounds": state.get("total_rounds", 0),
+            "difficulty": state.get("difficulty", "medium"),
+            "report": state.get("report"),
+        }
+    return {
+        "session_id": session_id, "finished": False,
+        "question": q.get("question", ""),
+        "question_index": state.get("question_index", 0),
+        "total_rounds": state.get("total_rounds", 0),
+        "difficulty": state.get("difficulty", "medium"),
+    }
+
+
 async def get_report(user: MaooUser, session_id: str) -> Optional[Dict[str, Any]]:
     state = _load_session(session_id, user)
     if not state:

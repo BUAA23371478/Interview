@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { practiceApi, PracticeAnswerResp } from '../api/practice'
 
@@ -13,6 +13,28 @@ export default function PracticeSession() {
   const [total, setTotal] = useState(0)
   const [difficulty, setDifficulty] = useState('medium')
   const [error, setError] = useState('')
+
+  // 挂载时加载当前题目（setup 页 start 返回 session_id 后跳转过来）
+  useEffect(() => {
+    if (!sessionId) {
+      setError('缺少会话 ID')
+      return
+    }
+    practiceApi
+      .current(sessionId)
+      .then((r) => {
+        if (r.finished) {
+          // 会话已结束，跳回首页
+          navigate('/')
+          return
+        }
+        setQuestion(r.question)
+        setIndex(r.question_index)
+        setTotal(r.total_rounds)
+        setDifficulty(r.difficulty)
+      })
+      .catch((e) => setError((e as Error).message))
+  }, [sessionId, navigate])
 
   const submit = async () => {
     if (!sessionId || !answer.trim()) return
