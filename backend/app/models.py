@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
+from sqlalchemy.dialects.mysql import LONGTEXT, MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -67,7 +68,7 @@ class Document(Base):
     review_by: Mapped[str] = mapped_column(String(64), default="")
     review_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     original_hash: Mapped[str] = mapped_column(String(64), default="")
-    content_text: Mapped[str] = mapped_column(Text, default="")  # 内容快照
+    content_text: Mapped[str] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"), default="")  # 内容快照（MySQL 用 MEDIUMTEXT 支持长文档）
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
@@ -126,3 +127,16 @@ class WrongAnswer(Base):
     reviewed: Mapped[int] = mapped_column(Integer, default=0)
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class Vector(Base):
+    """向量索引（与业务数据同库，生产用 MySQL / 本地用 SQLite）。"""
+    __tablename__ = "vectors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    doc_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, default=0)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    content: Mapped[str] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"), default="")
+    embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"), default="{}")

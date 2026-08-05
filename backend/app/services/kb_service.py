@@ -166,7 +166,7 @@ def _tokenize(text: str) -> List[str]:
 
 async def reindex_doc(doc_id: int, content: str, meta: Dict[str, Any]) -> int:
     """重建单个文档索引（先删后建）。"""
-    vector_store.delete_document(_doc_id(doc_id))
+    await vector_store.delete_document(_doc_id(doc_id))
     chunks = split_text(content)
     return await _index_doc_chunks(doc_id, chunks, meta)
 
@@ -175,8 +175,8 @@ async def reindex_doc(doc_id: int, content: str, meta: Dict[str, Any]) -> int:
 
 async def ensure_seed_indexed() -> None:
     """启动时若向量库为空且存在 seed 文档 → 全量索引（幂等）。"""
-    if vector_store.total_count() > 0:
-        logger.info("向量库已有 {} 条，跳过种子索引", vector_store.total_count())
+    if await vector_store.total_count() > 0:
+        logger.info("向量库已有 {} 条，跳过种子索引", await vector_store.total_count())
         return
     seed_dir = settings.kb_seed_dir
     if not seed_dir.exists():
@@ -212,15 +212,18 @@ async def ensure_seed_indexed() -> None:
                     is_seed=1, original_hash=_sha256(content), content_text=content,
                 )
                 session.add(doc)
-                await session.flush()
             doc.status = "approved"
             doc.content_text = content
+            # 先提交 document 行，释放写事务，避免 SQLite 嵌套写锁（vector 索引用独立会话）
+            await session.commit()
+            await session.refresh(doc)
             meta = {"doc_title": title, "category": cat, "status": "approved", "doc_id": _doc_id(doc.id)}
             cc = await _index_doc_chunks(doc.id, split_text(content), meta)
+            # 回填 chunk_count 并提交
             doc.chunk_count = cc
+            await session.commit()
             indexed += 1
             logger.info("seed 已索引: {} ({} chunks)", title, cc)
-        await session.commit()
         if indexed:
             logger.success("种子知识库索引完成：{} 篇", indexed)
         else:
@@ -475,7 +478,7 @@ async def remove_document(user: MaooUser, doc_id: int) -> Dict[str, Any]:
             return {"ok": False, "message": "文档不存在"}
         if not user.is_admin and doc.maoo_user_id != user.user_id:
             return {"ok": False, "message": "无权操作"}
-        vector_store.delete_document(_doc_id(doc.id))
+        await vector_store.delete_document(_doc_id(doc.id))
         doc.status = "removed"
         doc.review_note = "已下架"
         await session.commit()
