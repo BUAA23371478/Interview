@@ -21,7 +21,7 @@ class Base(DeclarativeBase):
 
 
 def _build_engine():
-    url = settings.database_url
+    url = settings.effective_database_url
     if url.startswith("sqlite"):
         Path(settings.sqlite_path).parent.mkdir(parents=True, exist_ok=True)
         engine = create_async_engine(url, connect_args={"check_same_thread": False})
