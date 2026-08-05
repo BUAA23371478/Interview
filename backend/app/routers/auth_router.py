@@ -66,3 +66,10 @@ async def update_profile(body: ProfileUpdate,
         fields["radar_scores"] = body.radar_scores
     data = await long_term.update_profile(user.user_id, **fields) or {}
     return ProfileData(**data)
+
+
+@router.get("/wrong-book")
+async def get_wrong_book(user: MaooUser = Depends(require_login)) -> dict:
+    """完整错题本（含题目/回答/参考答案/笔记，供详情查看）。"""
+    items = await long_term.list_wrong_answers(user.user_id)
+    return {"ok": True, "total": len(items), "items": items}

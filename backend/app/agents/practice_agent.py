@@ -18,7 +18,7 @@ class PracticeQuestionAgent(BaseAgent):
     name = "practice_question"
     description = "练习模式出题"
 
-    SYSTEM_PROMPT = """你是面试出题官，为专项练习出一道题。输出严格 JSON：
+    SYSTEM_PROMPT = """你是面试出题官，为专项练习出一道新题。输出严格 JSON：
 {
   "question": "题目内容",
   "topic": "主题",
@@ -31,18 +31,25 @@ class PracticeQuestionAgent(BaseAgent):
 - 难度: __DIFFICULTY__
 - 公司风格: __STYLE__
 - 题目要贴合主题、有考察深度；参考答案完整（标准版 + 口语版）
+- 严禁与以下已出过的题目重复（换个角度、换个子知识点）：__USED_QUESTIONS__
+- 若知识库无相关参考资料，请基于你的通用知识出题，不要重复已有题
 请以 JSON 输出。"""
 
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         topic = state.get("topic", "")
-        difficulty = state.get("difficulty", "medium")
+        # 使用当前难度（FSM 已更新），而非初始难度
+        difficulty = state.get("current_difficulty") or state.get("difficulty", "medium")
         company_style = state.get("company_style", "通用")
         rag_context = (state.get("rag_context") or "")[:3000]
+        # 已出过的题（去重）
+        used = state.get("score_records", [])
+        used_text = "；".join(str(r.get("question", ""))[:60] for r in used) if used else "（无）"
 
         prompt = self.SYSTEM_PROMPT
         prompt = prompt.replace("__TOPIC__", topic)
         prompt = prompt.replace("__DIFFICULTY__", difficulty)
         prompt = prompt.replace("__STYLE__", f"{company_style}（{COMPANY_STYLE.get(company_style, '通用')}）")
+        prompt = prompt.replace("__USED_QUESTIONS__", used_text)
         user_prompt = f"知识库参考资料:\n{rag_context or '（无）'}"
         parsed = await self.invoke_llm_json(prompt, user_prompt)
         state["current_question"] = {

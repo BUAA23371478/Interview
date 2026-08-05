@@ -27,7 +27,7 @@ export default function PracticeSetup() {
         company_style: style,
         total_rounds: rounds,
       })
-      navigate(`/practice/session/${r.session_id}`)
+      navigate(`/practice/session/${r.session_id}`, { state: { ragHit: r.rag_hit, topic: topic.trim() } })
     } catch (e) {
       setError((e as Error).message)
     } finally {

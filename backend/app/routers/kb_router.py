@@ -27,9 +27,10 @@ async def list_docs(
     limit: int = Query(default=50, le=200),
     status: Optional[str] = None,
     category: Optional[str] = None,
+    mine: bool = False,
     user: Optional[MaooUser] = Depends(get_current_user),
 ) -> DocumentListResponse:
-    data = await kb_service.list_documents(user or _guest(), page, limit, status, category)
+    data = await kb_service.list_documents(user or _guest(), page, limit, status, category, mine)
     return DocumentListResponse(**data)
 
 

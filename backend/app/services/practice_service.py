@@ -67,6 +67,9 @@ async def start_practice(user: MaooUser, topic: str, difficulty: str,
     _save_session(state)
     await long_term.add_footprint(user.user_id, "start_practice", topic)
 
+    # 知识库是否有该主题资料
+    rag_hit = bool(state.get("rag_context", "").strip())
+
     return {
         "ok": True,
         "session_id": state["session_id"],
@@ -75,6 +78,7 @@ async def start_practice(user: MaooUser, topic: str, difficulty: str,
         "total_rounds": state["total_rounds"],
         "difficulty": state["difficulty"],
         "topic": topic,
+        "rag_hit": rag_hit,
     }
 
 
@@ -110,7 +114,7 @@ async def answer_practice(user: MaooUser, session_id: str, answer: str) -> Dict[
     # 下一题或结束
     next_idx = state["question_index"] + 1
     if next_idx >= state["total_rounds"]:
-        return await _finish_practice(user, state)
+        return await _finish_practice(user, state, score, is_correct, feedback, q)
 
     state["question_index"] = next_idx
     state["difficulty"] = state["current_difficulty"]
@@ -132,8 +136,11 @@ async def answer_practice(user: MaooUser, session_id: str, answer: str) -> Dict[
     }
 
 
-async def _finish_practice(user: MaooUser, state: Dict[str, Any]) -> Dict[str, Any]:
-    """练习结束：生成维度统计报告。"""
+async def _finish_practice(user: MaooUser, state: Dict[str, Any],
+                           last_score: float = 0.0, last_correct: bool = False,
+                           last_feedback: Optional[Dict[str, Any]] = None,
+                           last_q: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """练习结束：生成维度统计报告。附带最后一道题的评分反馈。"""
     records = state.get("score_records", [])
     scores = [r["score"] for r in records]
     avg = round(sum(scores) / len(scores), 1) if scores else 0
@@ -169,6 +176,11 @@ async def _finish_practice(user: MaooUser, state: Dict[str, Any]) -> Dict[str, A
         "ok": True, "session_id": state["session_id"], "finished": True,
         "score": round(avg, 1), "is_correct": avg >= 6,
         "feedback": f"练习完成，共 {len(records)} 题，平均分 {avg}",
+        # 最后一道题的即时反馈
+        "last_question_score": last_score,
+        "last_question_correct": last_correct,
+        "last_feedback": (last_feedback or {}).get("feedback", ""),
+        "last_reference": (last_q or {}).get("reference_answer", ""),
         "question": "", "question_index": state["question_index"],
         "total_rounds": state["total_rounds"],
         "difficulty": state["difficulty"],

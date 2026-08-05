@@ -20,6 +20,19 @@ export interface ProfileData {
   learning_footprint: Array<Record<string, unknown>>
 }
 
+export interface WrongBookItem {
+  id: number
+  session_id: string
+  topic: string
+  question: string
+  answer: string
+  reference: string
+  score: number
+  reviewed: number
+  note: string
+  created_at: string | null
+}
+
 export const authApi = {
   me: () => api.get<UserInfo>('/auth/me'),
   profile: () => api.get<ProfileData>('/auth/profile'),
@@ -27,4 +40,5 @@ export const authApi = {
     api.put<ProfileData>('/auth/profile', body),
   level: () => api.get<{ maoo_user_id: number; level: string; role: string }>('/auth/level'),
   testLlm: (apiKey: string) => api.post<{ ok: boolean; model: string; response?: string; error?: string }>('/auth/test-llm', { api_key: apiKey }),
+  wrongBook: () => api.get<{ ok: boolean; total: number; items: WrongBookItem[] }>('/auth/wrong-book'),
 }

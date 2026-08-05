@@ -177,6 +177,7 @@ class PracticeStartResponse(BaseModel):
     total_rounds: int
     difficulty: str
     topic: str
+    rag_hit: bool = True  # 知识库是否命中该主题资料
 
 
 class PracticeAnswerRequest(BaseModel):

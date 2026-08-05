@@ -137,7 +137,9 @@ async def save_report(maoo_user_id: int, session_id: str, mode: str, report: Dic
             if mode == "interview":
                 p.total_interviews = (p.total_interviews or 0) + 1
             else:
-                p.total_practices = (p.total_practices or 0) + 1
+                # 练习：累计题目数量（而非场次），total_practices 表示累计做过的题数
+                q_count = int(report.get("total_questions") or 0) or int(report.get("avg_count") or 0)
+                p.total_practices = (p.total_practices or 0) + max(q_count, 1)
             overall = report.get("overall_score") or report.get("avg_score") or 0
             prev = p.avg_score or 0.0
             count = (p.total_interviews or 0) + (p.total_practices or 0)

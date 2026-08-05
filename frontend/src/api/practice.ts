@@ -14,6 +14,7 @@ export interface PracticeStartResp {
   total_rounds: number
   difficulty: string
   topic: string
+  rag_hit: boolean
 }
 
 export interface PracticeAnswerResp {
@@ -29,6 +30,11 @@ export interface PracticeAnswerResp {
   question_index: number
   total_rounds: number
   difficulty: string
+  // 最后一道题完成时附带
+  last_question_score?: number
+  last_question_correct?: boolean
+  last_feedback?: string
+  last_reference?: string
   report?: PracticeReport | null
 }
 

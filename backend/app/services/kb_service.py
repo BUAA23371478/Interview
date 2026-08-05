@@ -64,11 +64,15 @@ def _doc_to_dict(d: Document) -> Dict[str, Any]:
 
 async def list_documents(user: MaooUser, page: int = 1, limit: int = 50,
                          status: Optional[str] = None,
-                         category: Optional[str] = None) -> Dict[str, Any]:
-    """普通用户只能看到 approved；admin 可看全部状态。"""
+                         category: Optional[str] = None,
+                         mine: bool = False) -> Dict[str, Any]:
+    """普通用户只能看到 approved；admin 可看全部状态。mine=True 只看当前用户上传（非 seed）。"""
     async with SessionLocal() as session:
         q = select(Document)
-        if user.is_admin:
+        if mine:
+            # 只看当前用户自己上传的（排除 seed：maoo_user_id=0）
+            q = q.where(Document.maoo_user_id == user.user_id, Document.is_seed == 0)
+        elif user.is_admin:
             if status:
                 q = q.where(Document.status == status)
         else:

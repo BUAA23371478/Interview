@@ -21,8 +21,8 @@ export default function KnowledgeBase() {
   useEffect(() => {
     kbApi.categories().then((d) => setCategories(d.categories)).catch(() => {})
     loadDocs()
-    // 我的上传（admin 也能看到全部）
-    kbApi.docs(1, 100).then((d) => setMyDocs(d.items)).catch(() => {})
+    // 我的上传：只看当前用户自己上传的（不含内置 seed）
+    kbApi.docs(1, 100, undefined, undefined, true).then((d) => setMyDocs(d.items)).catch(() => {})
   }, [loadDocs])
 
   const doSearch = async () => {
@@ -43,7 +43,7 @@ export default function KnowledgeBase() {
       const r = await kbApi.upload(file, cat, title)
       setUploadMsg(r.ok ? `✅ ${r.message}（AI 预审分 ${(r.ai_precheck as { approve_score?: number })?.approve_score ?? '-'}）` : `❌ ${r.message}`)
       loadDocs()
-      kbApi.docs(1, 100).then((d) => setMyDocs(d.items)).catch(() => {})
+      kbApi.docs(1, 100, undefined, undefined, true).then((d) => setMyDocs(d.items)).catch(() => {})
     } catch (e) {
       setUploadMsg(`❌ ${(e as Error).message}`)
     } finally {

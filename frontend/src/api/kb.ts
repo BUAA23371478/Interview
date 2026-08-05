@@ -47,10 +47,11 @@ export interface UploadResult {
 
 export const kbApi = {
   categories: () => api.get<{ ok: boolean; categories: string[] }>('/kb/categories'),
-  docs: (page = 1, limit = 50, status?: string, category?: string) => {
+  docs: (page = 1, limit = 50, status?: string, category?: string, mine = false) => {
     let p = `/kb/docs?page=${page}&limit=${limit}`
     if (status) p += `&status=${encodeURIComponent(status)}`
     if (category) p += `&category=${encodeURIComponent(category)}`
+    if (mine) p += `&mine=true`
     return api.get<{ ok: boolean; total: number; page: number; limit: number; items: KnowledgeDoc[] }>(p)
   },
   search: (q: string, topK = 5, category?: string) => {
