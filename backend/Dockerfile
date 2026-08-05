@@ -5,12 +5,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 系统依赖（PyMuPDF 需要部分库）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# 安装 Python 依赖（国内服务器用阿里云镜像加速，避免拉取超时）
+# 安装 Python 依赖
+# 提速要点：
+#   1. pip 走阿里云镜像（国内服务器拉取快一个量级）
+#   2. 无 apt-get 步骤：所有依赖（PyMuPDF/asyncmy/asyncpg 等）都有预编译 wheel，
+#      jieba 为纯 Python 包，均无需 build-essential；省去卡死的 deb.debian.org
 COPY requirements.txt .
 RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
     && pip install --no-cache-dir -r requirements.txt
