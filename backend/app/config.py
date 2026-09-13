@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_temperature: float = 0.7
     llm_max_tokens: int = 4096
+    llm_timeout: float = 60.0
     llm_json_temperature: float = 0.2
     # DeepSeek Responses API 模式（deepseek-v4-flash）：true 走 responses.create
     # base_url 无 /v1 后缀（https://api.deepseek.com），model 用 deepseek-v4-flash
@@ -144,6 +145,33 @@ class Settings(BaseSettings):
     rag_max_candidates_for_rerank: int = 20
     rag_use_rerank: bool = False
 
+    # ---- 向量检索引擎（规模化：O(N) 全表扫描 → 内存矩阵 + ANN）----
+    # memory: 内存向量矩阵（numpy 批量余弦，万级以内足够）
+    # hnsw:   内存 HNSW ANN 索引（十万级以上，需 faiss-cpu）
+    rag_index_type: str = "auto"          # auto | memory | hnsw | brute
+    rag_index_path: str = ""              # 留空 = BACKEND_DIR/data/vector_index
+    rag_hnsw_m: int = 32                  # HNSW 每节点邻居数
+    rag_hnsw_ef_construction: int = 200
+    rag_hnsw_ef_search: int = 64
+    rag_ann_threshold: int = 20000        # auto 模式下超过该规模自动用 HNSW
+    rag_index_auto_reload: bool = True    # 索引变更后自动重载
+    rag_index_reload_interval: int = 5    # 秒；检查索引版本
+
+    # ---- Embedding 缓存与失败冷却 ----
+    embedding_cache_size: int = 2048      # 查询向量 LRU 缓存条数
+    embedding_cache_ttl: int = 3600       # 秒
+    embedding_cooldown: int = 60          # 失败后冷却秒数（冷却期内走降级路径，之后自动恢复）
+
+    # ---- SSE 事件流可靠性 ----
+    # 每个会话保留最近 N 条事件用于断线回放（Last-Event-ID），实现「先产内容后连流」不丢事件
+    sse_replay_buffer: int = 256
+    sse_heartbeat: int = 15               # 秒；无事件时发送 ping 保活，防反代 60s 断连
+
+    # ---- 会话并发控制 ----
+    # 同一会话同时只允许一个请求在写（乐观锁 CAS）：冲突方拿到 409 而不是覆盖丢数据
+    session_lock_ttl: int = 30            # 秒；会话写锁最长持有时间（防死锁）
+    session_max_retry: int = 3            # 乐观锁冲突重试次数
+
     # ---- 知识库审核 ----
     # AI 预审通过阈值（0-100）：>= 该值才推荐进入待人工复核
     kb_ai_approve_threshold: int = 60
@@ -170,6 +198,8 @@ class Settings(BaseSettings):
     consecutive_to_upgrade: int = 2   # 连对 N 题升级难度
     consecutive_to_downgrade: int = 2 # 连错 N 题降级难度
     default_difficulty: str = "medium"
+    # 出题难度来源：adaptive = 由难度状态机裁决（默认）；plan = 完全按预生成计划（用于 A/B 对照）
+    difficulty_mode: str = "adaptive"
     max_quiz_rounds: int = 20
 
     # ---- 目录 ----
@@ -193,6 +223,13 @@ class Settings(BaseSettings):
     @property
     def bm25_cache_path(self) -> Path:
         return self.data_dir / "bm25_corpus.pkl"
+
+    @property
+    def vector_index_dir(self) -> Path:
+        """ANN 索引持久化目录。"""
+        p = Path(self.rag_index_path) if self.rag_index_path else self.data_dir / "vector_index"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
 
 
 @lru_cache

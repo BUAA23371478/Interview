@@ -140,6 +140,8 @@ class InterviewStartResponse(BaseModel):
     total_rounds: int
     difficulty: str
     jd_title: str = ""
+    # 可观测性：本次请求各阶段耗时/token/成本
+    trace: Optional[Dict[str, Any]] = None
 
 
 class InterviewAnswerResponse(BaseModel):
@@ -150,8 +152,10 @@ class InterviewAnswerResponse(BaseModel):
     question_index: int = 0
     total_rounds: int
     difficulty: str
+    score: Optional[float] = None
     final_report: Optional[Dict[str, Any]] = None
     study_plan: Optional[Dict[str, Any]] = None
+    trace: Optional[Dict[str, Any]] = None
 
 
 class ReportResponse(BaseModel):

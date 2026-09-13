@@ -23,7 +23,7 @@ from app.database import SessionLocal
 from app.deps import MaooUser
 from app.llm import llm_client
 from app.models import Document, ReviewLog
-from app.rag.bm25 import BM25Retriever
+from app.rag.bm25 import bm25_retriever
 from app.rag.loader import extract_text_from_bytes, split_text
 from app.rag.vector_store import vector_store
 
@@ -124,48 +124,16 @@ async def search_documents(query: str, top_k: int = 5,
 # ── 索引构建 ─────────────────────────────────────────────────────────
 
 async def _index_doc_chunks(doc_id: int, chunks: List[str], meta: Dict[str, Any]) -> int:
-    """向量 + BM25 双索引。"""
+    """写入向量索引，并通知 BM25 索引刷新。
+
+    BM25 不再在此处做「全量重新分词 + 重建」——那会在 async 路径里同步阻塞事件循环
+    （实测 10 万 chunk 规模下单次入库阻塞约 64s，期间所有并发请求停摆）。
+    现在只做一次版本失效通知，真正的重建由 BM25 索引在后台线程按 DB 版本号完成。
+    """
     did = _doc_id(doc_id)
     chunk_count = await vector_store.index_document(did, chunks, meta)
-    # 同步 BM25 缓存：追加语料后重建
-    nodes = [{
-        "id": f"{did}#{i}", "doc_id": did, "text": c, "metadata": meta,
-    } for i, c in enumerate(chunks)]
-    _append_bm25(nodes)
+    bm25_retriever.notify_changed()
     return chunk_count
-
-
-def _append_bm25(nodes: List[Dict[str, Any]]) -> None:
-    """把新节点合并进 BM25 缓存并重建。"""
-    try:
-        import pickle
-        cache_path = settings.bm25_cache_path
-        corpus: List[Dict[str, Any]] = []
-        if cache_path.exists():
-            with open(cache_path, "rb") as fh:
-                corpus = pickle.load(fh).get("corpus", [])
-        existing_ids = {n["id"] for n in corpus}
-        for n in nodes:
-            if n["id"] not in existing_ids:
-                corpus.append(n)
-        with open(cache_path, "wb") as fh:
-            pickle.dump({"corpus": corpus}, fh)
-        # 热更新当前进程的 BM25 实例
-        from app.rag.bm25 import bm25_retriever
-        bm25_retriever._corpus = corpus
-        from rank_bm25 import BM25Okapi
-        bm25_retriever._bm25 = BM25Okapi([_tokenize(d["text"]) for d in corpus]) if corpus else None
-    except Exception as e:  # noqa: BLE001
-        logger.warning("BM25 缓存更新失败: {}", e)
-
-
-def _tokenize(text: str) -> List[str]:
-    try:
-        import jieba
-        return [w.strip() for w in jieba.cut(text) if w.strip()]
-    except ImportError:
-        import re
-        return re.findall(r"[\w一-鿿]+", text.lower())
 
 
 async def reindex_doc(doc_id: int, content: str, meta: Dict[str, Any]) -> int:
@@ -483,6 +451,7 @@ async def remove_document(user: MaooUser, doc_id: int) -> Dict[str, Any]:
         if not user.is_admin and doc.maoo_user_id != user.user_id:
             return {"ok": False, "message": "无权操作"}
         await vector_store.delete_document(_doc_id(doc.id))
+        bm25_retriever.notify_changed()
         doc.status = "removed"
         doc.review_note = "已下架"
         await session.commit()

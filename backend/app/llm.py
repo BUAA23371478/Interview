@@ -13,13 +13,17 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import hashlib
 import json
+import random
 import re
+from collections import OrderedDict
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from loguru import logger
 
 from app.config import settings
+from app.observability import record_usage
 
 # 请求级 LLM key（BYOK）：依赖层从 X-LLM-Key 请求头注入
 llm_api_key_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_api_key_ctx", default="")
@@ -36,6 +40,42 @@ class LLMError(Exception):
     def __init__(self, message: str = "LLM 调用失败") -> None:
         super().__init__(message)
         self.message = message
+
+
+# ── 重试策略：只重试「值得重试」的错误 + 带 jitter 的退避 ──────────────
+_RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+def is_retryable(exc: Exception) -> bool:
+    """4xx 中只有 429/408 等值得重试；其余（401/403/404/400）立即失败。"""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        resp = getattr(exc, "response", None)
+        status = getattr(resp, "status_code", None)
+    if isinstance(status, int):
+        return status in _RETRYABLE_STATUS
+    # 网络类/超时类错误（无状态码）→ 可重试
+    name = type(exc).__name__.lower()
+    return any(k in name for k in ("timeout", "connect", "network", "read", "protocol", "unavailable"))
+
+
+def retry_delay(attempt: int, exc: Exception, *, base: float = 0.5, cap: float = 6.0) -> float:
+    """Full-jitter 退避；若响应带 Retry-After 则优先遵循（并封顶）。
+
+    交互式场景必须封顶：用户正在等待，60s 的重试等价于停机。
+    """
+    retry_after = None
+    resp = getattr(exc, "response", None)
+    headers = getattr(resp, "headers", None)
+    if headers:
+        try:
+            retry_after = float(headers.get("retry-after"))
+        except (TypeError, ValueError):
+            retry_after = None
+    ceiling = min(cap, base * (2 ** attempt))
+    if retry_after is not None:
+        ceiling = min(max(retry_after, 0.1), cap)
+    return random.uniform(0.05, ceiling) if ceiling > 0.05 else 0.05
 
 
 class MockLLM:
@@ -185,10 +225,12 @@ class UnifiedLLMClient:
     """
 
     def __init__(self) -> None:
-        self._client: Optional[Any] = None
-        self._responses_client: Optional[Any] = None
+        # 按 key 分池缓存客户端：修掉「单槽缓存 + 多租户并发」导致的跨用户串号。
+        # 每个 key 独立一个 AsyncOpenAI 实例，连接可复用，且不会互相覆盖。
+        self._pool: "OrderedDict[str, Any]" = OrderedDict()
+        self._pool_lock = asyncio.Lock()
+        self._pool_max = 64
         self._max_retries = 3
-        self._current_key: Optional[str] = None
 
     @property
     def enabled(self) -> bool:
@@ -199,37 +241,54 @@ class UnifiedLLMClient:
         """请求级用户 key 优先，其次服务端 key。"""
         return llm_api_key_ctx.get() or settings.llm_api_key
 
+    @staticmethod
+    def _pool_key(api_key: str, base_url: str) -> str:
+        """池键：只存哈希，避免在字典键上明文持有用户密钥。"""
+        return hashlib.sha256(f"{api_key}|{base_url}".encode()).hexdigest()
+
+    def _acquire(self, api_key: str, base_url: str) -> Any:
+        """从池中取（或创建）指定 key 的客户端。LRU 淘汰，避免密钥无限累积。"""
+        pk = self._pool_key(api_key, base_url)
+        client = self._pool.get(pk)
+        if client is not None:
+            self._pool.move_to_end(pk)
+            return client
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=settings.llm_timeout,
+            max_retries=0,  # 重试由本模块统一控制（带 jitter）
+        )
+        self._pool[pk] = client
+        if len(self._pool) > self._pool_max:
+            self._pool.popitem(last=False)
+        return client
+
     def _get_client(self) -> Any:
-        """惰性创建 OpenAI 客户端（chat.completions 模式）。"""
-        key = self._effective_key()
-        if self._client is None or self._current_key != key:
-            from openai import AsyncOpenAI
-            self._client = AsyncOpenAI(
-                api_key=key,
-                base_url=settings.llm_base_url,
-                timeout=60.0,
-                max_retries=0,  # 手动重试
-            )
-            self._current_key = key
-        return self._client
+        """chat.completions 模式客户端（按当前请求的 key 取）。"""
+        return self._acquire(self._effective_key(), settings.llm_base_url)
 
     def _get_responses_client(self) -> Any:
-        """惰性创建 Responses API 客户端（deepseek-v4-flash）。"""
-        key = self._effective_key()
-        if self._responses_client is None or self._current_key != key:
-            from openai import AsyncOpenAI
-            self._responses_client = AsyncOpenAI(
-                api_key=key,
-                base_url=settings.llm_responses_base_url,
-                timeout=60.0,
-                max_retries=0,
-            )
-            self._current_key = key
-        return self._responses_client
+        """Responses API 模式客户端（按当前请求的 key 取）。"""
+        return self._acquire(self._effective_key(), settings.llm_responses_base_url)
 
     @property
     def _mode_label(self) -> str:
         return "responses" if settings.llm_responses_mode else "chat.completions"
+
+    def stats(self) -> Dict[str, object]:
+        """运行时可观测指标：多租户 key 池规模、当前请求是否 BYOK、调用模式。"""
+        return {
+            "mode": self._mode_label,
+            "pool_size": len(self._pool),
+            "pool_max": self._pool_max,
+            "request_key": bool(llm_api_key_ctx.get()),   # true = 用户自带 key
+            "server_key": bool(settings.llm_api_key),
+            "max_retries": self._max_retries,
+            "timeout_s": settings.llm_timeout,
+        }
 
     async def chat(self, system_prompt: str, user_prompt: str,
                    *, temperature: Optional[float] = None,
@@ -252,6 +311,12 @@ class UnifiedLLMClient:
                         temperature=temperature,
                         max_output_tokens=max_tokens or settings.llm_max_tokens,
                     )
+                    usage = getattr(resp, "usage", None)
+                    record_usage(
+                        settings.llm_responses_model,
+                        int(getattr(usage, "input_tokens", 0) or 0),
+                        int(getattr(usage, "output_tokens", 0) or 0),
+                    )
                     return getattr(resp, "output_text", "") or ""
                 resp = await self._get_client().chat.completions.create(
                     model=settings.llm_model,
@@ -262,10 +327,21 @@ class UnifiedLLMClient:
                     temperature=temperature,
                     max_tokens=max_tokens or settings.llm_max_tokens,
                 )
+                usage = getattr(resp, "usage", None)
+                record_usage(
+                    settings.llm_model,
+                    int(getattr(usage, "prompt_tokens", 0) or 0),
+                    int(getattr(usage, "completion_tokens", 0) or 0),
+                )
                 return resp.choices[0].message.content or ""
             except Exception as e:  # noqa: BLE001
                 last_err = e
-                await asyncio.sleep(min(2 ** attempt, 8))
+                if not is_retryable(e) or attempt == self._max_retries - 1:
+                    break
+                delay = retry_delay(attempt, e)
+                logger.warning("LLM chat 第 {} 次失败，{:.2f}s 后重试: {}",
+                               attempt + 1, delay, type(e).__name__)
+                await asyncio.sleep(delay)
         logger.error("LLM {} chat 失败（重试 {} 次）: {}", self._mode_label, self._max_retries, last_err)
         raise LLMError(str(last_err))
 
@@ -292,25 +368,46 @@ class UnifiedLLMClient:
                     stream=True,
                 )
                 async for event in stream:
-                    if getattr(event, "type", "") == "response.output_text.delta":
+                    etype = getattr(event, "type", "")
+                    if etype == "response.output_text.delta":
                         delta = getattr(event, "delta", "")
                         if delta:
                             yield delta
+                    elif etype == "response.completed":
+                        usage = getattr(getattr(event, "response", None), "usage", None)
+                        record_usage(settings.llm_responses_model,
+                                     int(getattr(usage, "input_tokens", 0) or 0),
+                                     int(getattr(usage, "output_tokens", 0) or 0))
                 return
-            stream = await self._get_client().chat.completions.create(
-                model=settings.llm_model,
-                messages=[
+            create_kwargs = {
+                "model": settings.llm_model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=temperature,
-                max_tokens=max_tokens or settings.llm_max_tokens,
-                stream=True,
-            )
+                "temperature": temperature,
+                "max_tokens": max_tokens or settings.llm_max_tokens,
+                "stream": True,
+            }
+            try:
+                # 让服务端在末帧回传 usage，流式调用也能被真实计量
+                stream = await self._get_client().chat.completions.create(
+                    **create_kwargs, stream_options={"include_usage": True})
+            except Exception:  # noqa: BLE001
+                # 部分 OpenAI 兼容服务不支持 stream_options，降级为不带 usage 的流式
+                stream = await self._get_client().chat.completions.create(**create_kwargs)
+
+            last_usage = None
             async for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    last_usage = chunk.usage
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
                     yield delta
+            if last_usage is not None:
+                record_usage(settings.llm_model,
+                             int(getattr(last_usage, "prompt_tokens", 0) or 0),
+                             int(getattr(last_usage, "completion_tokens", 0) or 0))
         except Exception as e:  # noqa: BLE001
             logger.error("LLM {} 流式调用失败: {}", self._mode_label, e)
             raise LLMError(str(e))

@@ -72,20 +72,82 @@ class ShortTermMemory:
             logger.warning("Redis 不可用，短期记忆使用内存模式：{}", e)
         return self._redis
 
-    def save_snapshot(self, session_id: str, state: Dict[str, Any]) -> None:
-        """保存会话状态快照。"""
+    def save_snapshot(self, session_id: str, state: Dict[str, Any],
+                      expected_version: Optional[int] = None) -> bool:
+        """保存会话状态快照（带乐观锁 CAS）。
+
+        并发场景：同一会话被两个请求同时读改写时，后写者会覆盖前写者，
+        导致「答题记录丢失 / 题目跳变」。这里用版本号做 CAS：
+
+        - `expected_version` 为 None → 无条件写（初始化等场景）；
+        - 否则比对存储中的当前版本，不一致即拒绝写入并返回 False，
+          调用方据此返回 409，让客户端重试而不是静默丢数据。
+        """
         try:
             data = json.dumps(_safe_serialize(state), ensure_ascii=False)
         except (TypeError, ValueError):
             data = json.dumps({})
+        ver = int(state.get("_version") or 0)
         r = self._ensure()
         if r:
-            r.set(f"iam:short:{session_id}:snapshot", data, ex=settings.redis_short_term_ttl)
-        else:
-            self._mem_store[f"{session_id}:snapshot"] = {
-                "data": data,
-                "expire": settings.redis_short_term_ttl,
-            }
+            return self._cas_redis(r, session_id, data, ver, expected_version)
+        return self._cas_memory(session_id, data, ver, expected_version)
+
+    def _cas_redis(self, r: Any, session_id: str, data: str,
+                   ver: int, expected_version: Optional[int]) -> bool:
+        """Redis WATCH/MULTI 实现原子 CAS。"""
+        snap_key = f"iam:short:{session_id}:snapshot"
+        ver_key = f"iam:short:{session_id}:ver"
+        ttl = settings.redis_short_term_ttl
+        try:
+            with r.pipeline() as pipe:
+                pipe.watch(ver_key)
+                cur = pipe.get(ver_key)
+                cur = int(cur) if cur is not None else 0
+                if expected_version is not None and cur != expected_version:
+                    pipe.unwatch()
+                    logger.warning("会话 {} 版本冲突：期望 {} 实际 {}，拒绝写入",
+                                   session_id, expected_version, cur)
+                    return False
+                pipe.multi()
+                pipe.set(snap_key, data, ex=ttl)
+                pipe.set(ver_key, cur + 1, ex=ttl)
+                pipe.execute()
+            return True
+        except Exception as e:  # noqa: BLE001
+            from redis.exceptions import WatchError
+            if isinstance(e, WatchError):
+                logger.warning("会话 {} CAS 检测到并发写，拒绝写入", session_id)
+                return False
+            logger.warning("保存会话快照失败: {}", e)
+            return False
+
+    def _cas_memory(self, session_id: str, data: str, ver: int,
+                    expected_version: Optional[int]) -> bool:
+        cur = self._mem_store.get(f"{session_id}:ver")
+        cur = int(cur) if cur is not None else 0
+        if expected_version is not None and cur != expected_version:
+            logger.warning("会话 {} 版本冲突：期望 {} 实际 {}，拒绝写入",
+                           session_id, expected_version, cur)
+            return False
+        self._mem_store[f"{session_id}:snapshot"] = {
+            "data": data,
+            "expire": settings.redis_short_term_ttl,
+        }
+        self._mem_store[f"{session_id}:ver"] = cur + 1
+        return True
+
+    def version(self, session_id: str) -> int:
+        """读取会话当前版本号（无则 0）。"""
+        r = self._ensure()
+        try:
+            if r:
+                v = r.get(f"iam:short:{session_id}:ver")
+                return int(v) if v is not None else 0
+        except Exception as e:  # noqa: BLE001
+            logger.warning("读取会话版本失败: {}", e)
+        v = self._mem_store.get(f"{session_id}:ver")
+        return int(v) if v is not None else 0
 
     def load_snapshot(self, session_id: str) -> Dict[str, Any]:
         r = self._ensure()
@@ -97,7 +159,10 @@ class ShortTermMemory:
                 data = item["data"] if item else None
             if not data:
                 return {}
-            return sanitize_state(json.loads(data))
+            state = sanitize_state(json.loads(data))
+            # 注入乐观锁版本号，供后续 CAS 写回校验
+            state["_version"] = self.version(session_id)
+            return state
         except Exception as e:  # noqa: BLE001
             logger.warning("加载会话快照失败: {}", e)
             return {}
@@ -136,11 +201,12 @@ class ShortTermMemory:
     def clear(self, session_id: str) -> None:
         r = self._ensure()
         if r:
-            for suffix in ("snapshot", "turns"):
+            for suffix in ("snapshot", "turns", "ver"):
                 r.delete(f"iam:short:{session_id}:{suffix}")
         else:
             self._mem_store.pop(f"{session_id}:snapshot", None)
             self._mem_store.pop(f"{session_id}:turns", None)
+            self._mem_store.pop(f"{session_id}:ver", None)
 
 
 def _safe_serialize(obj: Any) -> Any:

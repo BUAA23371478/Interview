@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from app.agents.base_agent import BaseAgent, _safe_truncate
+from app.agents.difficulty_fsm import describe as describe_difficulty
+from app.agents.difficulty_fsm import effective_difficulty
 from app.config import settings
 
 LEVEL_LABEL = {
@@ -79,17 +81,21 @@ __HISTORY__
         resume = state.get("resume_parsed") or {}
         title = f"（{LEVEL_LABEL.get(jd.get('level', ''), '')}{jd.get('title', '')}）".replace("（）", "")
 
+        # 难度由状态机裁决（修复初版「FSM 只写状态、出题仍用预设 plan 难度」的脱钩问题）
+        difficulty = effective_difficulty(state, q)
+        state["current_question_difficulty"] = difficulty
+
         prompt = self.ASK_PROMPT
         prompt = prompt.replace("__TITLE__", title or "技术岗")
         prompt = prompt.replace("__CUR__", str(idx + 1))
         prompt = prompt.replace("__TOTAL__", str(len(plan)))
         prompt = prompt.replace("__TOPIC__", str(q.get("topic", "")))
         prompt = prompt.replace("__QTYPE__", str(q.get("question_type", "concept")))
-        prompt = prompt.replace("__DIFFICULTY__", DIFFICULTY_LABEL.get(str(q.get("difficulty", "medium")), "中等"))
+        prompt = prompt.replace("__DIFFICULTY__", DIFFICULTY_LABEL.get(difficulty, "中等"))
         prompt = prompt.replace("__FOCUS__", str(q.get("focus", "")))
         prompt = prompt.replace("__PRESET__", str(q.get("prompt", "")) or "无")
         prompt = prompt.replace("__RESUME_SUMMARY__", _safe_truncate(str(resume.get("summary", "")), 300) or "（未提供简历）")
-        prompt = prompt.replace("__DIFFICULTY_STATE__", f"当前难度：{DIFFICULTY_LABEL.get(str(state.get('current_difficulty', 'medium')), '中等')}")
+        prompt = prompt.replace("__DIFFICULTY_STATE__", describe_difficulty(state))
         prompt = prompt.replace("__HISTORY__", _build_history_text(state.get("qa_history", [])) or "（无）")
 
         parsed = await self.invoke_llm_json(prompt, "请出题")
