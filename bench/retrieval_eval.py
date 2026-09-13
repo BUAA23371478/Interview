@@ -304,6 +304,8 @@ async def main() -> None:
     ap.add_argument("--docs", type=int, default=40,
                     help="抽样多少篇文档生成查询集（检索仍在全量语料上进行）")
     ap.add_argument("--rerank", type=int, default=1, help="1=启用精排（需 RERANK_API_KEY）")
+    ap.add_argument("--queries-file", type=str, default="",
+                    help="外部查询集 JSON（覆盖 LLM 自动生成）；含 q/gold/type/expected_doc_title")
     args = ap.parse_args()
 
     from app.config import settings
@@ -328,6 +330,35 @@ async def main() -> None:
     print(f"查询集抽样文档 {len(docs)} 篇（检索语料仍为全量 {len(docs_all)} 篇）")
 
     queries = await build_queries(docs, args.regen_queries)
+    # 若指定外部查询集，覆盖自动生成的；同时把 title-based gold 解析成 doc_id
+    if args.queries_file:
+        qf = Path(args.queries_file)
+        if not qf.is_absolute():
+            qf = Path(__file__).parent / qf
+        raw = json.loads(qf.read_text(encoding="utf-8"))
+        # 建立 title → doc_id 映射
+        title_to_id = {d["title"]: d["doc_id"] for d in docs_all}
+        resolved = []
+        skipped = 0
+        for it in raw:
+            q = str(it.get("q", "")).strip()
+            if not q:
+                continue
+            gold = str(it.get("gold", ""))
+            expected_title = str(it.get("expected_doc_title", ""))
+            # 优先按 title 解析
+            if expected_title and expected_title in title_to_id:
+                gold = title_to_id[expected_title]
+            elif gold and gold in title_to_id.values():
+                pass  # 已经是 doc:N
+            elif gold and gold in title_to_id:
+                gold = title_to_id[gold]
+            else:
+                skipped += 1
+                continue
+            resolved.append({"q": q, "gold": gold, "type": it.get("type", "title")})
+        queries = resolved
+        print(f"使用外部查询集 {qf.name}（原始 {len(raw)} 条 / 解析 {len(queries)} 条 / 跳过 {skipped}）")
     if args.limit:
         queries = queries[: args.limit]
     by_type: Dict[str, int] = {}

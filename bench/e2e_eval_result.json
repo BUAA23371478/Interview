@@ -1,0 +1,134 @@
+{
+ "practice": {
+  "mode": "practice",
+  "log": [
+   {
+    "name": "jd_parse",
+    "ok": true,
+    "ms": 0.0,
+    "err": ""
+   },
+   {
+    "name": "resume_parse",
+    "ok": true,
+    "ms": 0.0,
+    "err": ""
+   },
+   {
+    "name": "question_plan",
+    "ok": true,
+    "ms": 38293.9,
+    "err": ""
+   },
+   {
+    "name": "ask_question_1",
+    "ok": true,
+    "ms": 925.8,
+    "err": ""
+   },
+   {
+    "name": "submit_answer_1",
+    "ok": true,
+    "ms": 0.0,
+    "err": "（模拟用户答）"
+   },
+   {
+    "name": "score_question_1",
+    "ok": true,
+    "ms": 1067.6,
+    "err": ""
+   },
+   {
+    "name": "followup_question",
+    "ok": true,
+    "ms": 643.5,
+    "err": ""
+   },
+   {
+    "name": "complete_session",
+    "ok": true,
+    "ms": 1020.5,
+    "err": ""
+   },
+   {
+    "name": "report_generation",
+    "ok": true,
+    "ms": 23120.5,
+    "err": ""
+   }
+  ],
+  "n_questions": 2,
+  "farewell": ""
+ },
+ "mock_interview": {
+  "mode": "mock_interview",
+  "log": [
+   {
+    "name": "ask_q1",
+    "ok": true,
+    "ms": 677.5,
+    "err": ""
+   },
+   {
+    "name": "score_q1",
+    "ok": true,
+    "ms": 1301.0,
+    "err": ""
+   },
+   {
+    "name": "ask_q2",
+    "ok": true,
+    "ms": 1079.5,
+    "err": ""
+   },
+   {
+    "name": "score_q2",
+    "ok": true,
+    "ms": 1236.2,
+    "err": ""
+   },
+   {
+    "name": "ask_q3",
+    "ok": true,
+    "ms": 1035.9,
+    "err": ""
+   },
+   {
+    "name": "score_q3",
+    "ok": true,
+    "ms": 1202.2,
+    "err": ""
+   },
+   {
+    "name": "complete_session",
+    "ok": true,
+    "ms": 933.0,
+    "err": ""
+   }
+  ],
+  "n_questions": 3,
+  "farewell": ""
+ },
+ "spend": {
+  "cap_yuan": 30.0,
+  "spent_yuan": 0.164127,
+  "remaining_yuan": 29.835873,
+  "used_pct": 0.55,
+  "denied_calls": 0,
+  "by_model": {
+   "deepseek-flash": {
+    "calls": 220,
+    "in": 77616,
+    "out": 46077,
+    "cost": 0.156347
+   },
+   "qwen3.8-flash": {
+    "calls": 5,
+    "in": 1349,
+    "out": 6145,
+    "cost": 0.007779
+   }
+  },
+  "ledger_file": "E:\\Study\\MA\\Interview\\bench\\_spend_ledger.json"
+ }
+}

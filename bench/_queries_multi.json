@@ -1,0 +1,296 @@
+[
+ {
+  "q": "Docker 容器化基础",
+  "gold": "Docker 容器化基础",
+  "type": "title",
+  "expected_doc_title": "Docker 容器化基础"
+ },
+ {
+  "q": "Docker 与虚拟机有什么区别",
+  "gold": "Docker 容器化基础",
+  "type": "section",
+  "expected_doc_title": "Docker 容器化基础"
+ },
+ {
+  "q": "Git 工作流 GitFlow 与 trunk-based",
+  "gold": "Git 工作流",
+  "type": "section",
+  "expected_doc_title": "Git 工作流"
+ },
+ {
+  "q": "Kubernetes Pod 是什么",
+  "gold": "Kubernetes 核心概念",
+  "type": "section",
+  "expected_doc_title": "Kubernetes 核心概念"
+ },
+ {
+  "q": "Linux 常用命令 top/ps/grep",
+  "gold": "Linux 常用命令",
+  "type": "section",
+  "expected_doc_title": "Linux 常用命令"
+ },
+ {
+  "q": "MySQL InnoDB 索引原理 B+ 树",
+  "gold": "MySQL 索引原理",
+  "type": "section",
+  "expected_doc_title": "MySQL 索引原理"
+ },
+ {
+  "q": "Redis 数据结构 string hash list set zset",
+  "gold": "Redis 数据结构",
+  "type": "section",
+  "expected_doc_title": "Redis 数据结构"
+ },
+ {
+  "q": "RESTful API 设计原则",
+  "gold": "RESTful API 设计",
+  "type": "section",
+  "expected_doc_title": "RESTful API 设计"
+ },
+ {
+  "q": "MySQL 事务隔离级别 脏读 不可重复读 幻读",
+  "gold": "SQL 事务隔离级别",
+  "type": "section",
+  "expected_doc_title": "SQL 事务隔离级别"
+ },
+ {
+  "q": "二叉树遍历 递归迭代",
+  "gold": "二叉树遍历",
+  "type": "section",
+  "expected_doc_title": "二叉树遍历"
+ },
+ {
+  "q": "动态规划入门 状态转移方程",
+  "gold": "动态规划入门",
+  "type": "section",
+  "expected_doc_title": "动态规划入门"
+ },
+ {
+  "q": "哈希表原理 冲突解决",
+  "gold": "哈希表原理",
+  "type": "section",
+  "expected_doc_title": "哈希表原理"
+ },
+ {
+  "q": "微服务拆分原则",
+  "gold": "微服务拆分原则",
+  "type": "section",
+  "expected_doc_title": "微服务拆分原则"
+ },
+ {
+  "q": "排序算法 时间复杂度 对比",
+  "gold": "排序算法对比",
+  "type": "section",
+  "expected_doc_title": "排序算法对比"
+ },
+ {
+  "q": "数据库三大范式",
+  "gold": "数据库三大范式",
+  "type": "section",
+  "expected_doc_title": "数据库三大范式"
+ },
+ {
+  "q": "数据库连接池 作用",
+  "gold": "数据库连接池",
+  "type": "section",
+  "expected_doc_title": "数据库连接池"
+ },
+ {
+  "q": "ISTQB 基础概念",
+  "gold": "ISTQB 基础",
+  "type": "title",
+  "expected_doc_title": "ISTQB 基础"
+ },
+ {
+  "q": "Mock 与 Stub 的区别",
+  "gold": "Mock 与 Stub",
+  "type": "title",
+  "expected_doc_title": "Mock 与 Stub"
+ },
+ {
+  "q": "性能测试方法 负载 压力 容量",
+  "gold": "性能测试方法",
+  "type": "section",
+  "expected_doc_title": "性能测试方法"
+ },
+ {
+  "q": "测试用例设计方法 等价类 边界值",
+  "gold": "测试用例设计方法",
+  "type": "title",
+  "expected_doc_title": "测试用例设计方法"
+ },
+ {
+  "q": "测试金字塔 单元测试 服务测试 E2E",
+  "gold": "测试金字塔",
+  "type": "section",
+  "expected_doc_title": "测试金字塔"
+ },
+ {
+  "q": "缺陷生命周期",
+  "gold": "缺陷生命周期",
+  "type": "title",
+  "expected_doc_title": "缺陷生命周期"
+ },
+ {
+  "q": "PRD 写作指南",
+  "gold": "PRD 写作指南",
+  "type": "title",
+  "expected_doc_title": "PRD 写作指南"
+ },
+ {
+  "q": "KANO 模型 基本型 期望型 兴奋型",
+  "gold": "需求优先级模型",
+  "type": "section",
+  "expected_doc_title": "需求优先级模型"
+ },
+ {
+  "q": "RICE 评分 计算公式",
+  "gold": "需求优先级模型",
+  "type": "section",
+  "expected_doc_title": "需求优先级模型"
+ },
+ {
+  "q": "MVP 最小可行产品 设计",
+  "gold": "MVP 设计",
+  "type": "title",
+  "expected_doc_title": "MVP 设计"
+ },
+ {
+  "q": "AB 测试 设计 流量分配",
+  "gold": "AB 测试",
+  "type": "title",
+  "expected_doc_title": "AB 测试"
+ },
+ {
+  "q": "用户画像 构建方法",
+  "gold": "用户画像",
+  "type": "title",
+  "expected_doc_title": "用户画像"
+ },
+ {
+  "q": "GDP 国民收入 核算方法",
+  "gold": "GDP 与国民经济",
+  "type": "title",
+  "expected_doc_title": "GDP 与国民经济"
+ },
+ {
+  "q": "供给曲线 需求曲线 均衡价格",
+  "gold": "供给曲线",
+  "type": "title",
+  "expected_doc_title": "供给曲线"
+ },
+ {
+  "q": "货币政策 工具",
+  "gold": "货币政策",
+  "type": "title",
+  "expected_doc_title": "货币政策"
+ },
+ {
+  "q": "通货膨胀 原因 影响",
+  "gold": "通货膨胀",
+  "type": "title",
+  "expected_doc_title": "通货膨胀"
+ },
+ {
+  "q": "货币与银行 商业银行 央行",
+  "gold": "货币与银行",
+  "type": "title",
+  "expected_doc_title": "货币与银行"
+ },
+ {
+  "q": "英语语法 时态",
+  "gold": "英语语法时态",
+  "type": "section",
+  "expected_doc_title": "英语语法时态"
+ },
+ {
+  "q": "CET 4 6 词汇 备考",
+  "gold": "CET 词汇备考",
+  "type": "title",
+  "expected_doc_title": "CET 词汇备考"
+ },
+ {
+  "q": "雅思写作 Task 2 评分标准",
+  "gold": "雅思写作评分",
+  "type": "title",
+  "expected_doc_title": "雅思写作评分"
+ },
+ {
+  "q": "英文商务邮件 格式",
+  "gold": "英文商务邮件",
+  "type": "title",
+  "expected_doc_title": "英文商务邮件"
+ },
+ {
+  "q": "民法 物权 所有权",
+  "gold": "民法物权",
+  "type": "title",
+  "expected_doc_title": "民法物权"
+ },
+ {
+  "q": "合同法 要约 承诺",
+  "gold": "合同法基础",
+  "type": "title",
+  "expected_doc_title": "合同法基础"
+ },
+ {
+  "q": "刑法 犯罪构成要件",
+  "gold": "刑法基础",
+  "type": "title",
+  "expected_doc_title": "刑法基础"
+ },
+ {
+  "q": "知识产权 著作权 专利",
+  "gold": "知识产权基础",
+  "type": "title",
+  "expected_doc_title": "知识产权基础"
+ },
+ {
+  "q": "哲学入门 形而上学 认识论 伦理学",
+  "gold": "哲学入门",
+  "type": "title",
+  "expected_doc_title": "哲学入门"
+ },
+ {
+  "q": "苏格拉底 柏拉图 亚里士多德",
+  "gold": "古希腊哲学",
+  "type": "title",
+  "expected_doc_title": "古希腊哲学"
+ },
+ {
+  "q": "康德 三大批判",
+  "gold": "德国古典哲学",
+  "type": "section",
+  "expected_doc_title": "德国古典哲学"
+ },
+ {
+  "q": "逻辑学基础 命题 推理",
+  "gold": "逻辑学基础",
+  "type": "title",
+  "expected_doc_title": "逻辑学基础"
+ },
+ {
+  "q": "工业设计史 包豪斯",
+  "gold": "工业设计史",
+  "type": "section",
+  "expected_doc_title": "工业设计史"
+ },
+ {
+  "q": "设计思维 empathize define ideate",
+  "gold": "设计思维",
+  "type": "section",
+  "expected_doc_title": "设计思维"
+ },
+ {
+  "q": "人机工程学 座椅 高度",
+  "gold": "人机工程学",
+  "type": "title",
+  "expected_doc_title": "人机工程学"
+ },
+ {
+  "q": "材料工艺 注塑 CNC",
+  "gold": "材料工艺",
+  "type": "title",
+  "expected_doc_title": "材料工艺"
+ }
+]

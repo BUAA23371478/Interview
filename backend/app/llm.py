@@ -490,11 +490,12 @@ class UnifiedLLMClient:
 
                 if not content.strip() and reasoning:
                     # 「思考模式吃满输出预算」的典型症状：有思维链、没正文。
-                    # 若当前是 auto 模式，先就地关掉思考重试一次；仍为空则报错，
-                    # 交由上层降级链换模型——绝不能把空字符串当成正常结果返回。
-                    if settings.llm_thinking_mode != "disabled":
-                        logger.warning("模型 {} 正文为空（思维链 {} 字），关闭思考重试一次",
-                                       model_id, len(reasoning))
+                    # 必须就地关掉思考重试一次；仍为空则报错交由上层降级链换模型。
+                    # 无论当前模式如何都触发——DeepSeek V4 有时会无视 extra_body，
+                    # 用「再发一次显式禁用」重试比改 model 便宜得多。
+                    logger.warning("模型 {} 正文为空（思维链 {} 字），显式关闭思考重试一次",
+                                   model_id, len(reasoning))
+                    try:
                         resp = await self._get_client().chat.completions.create(
                             model=model_id,
                             messages=[
@@ -510,6 +511,8 @@ class UnifiedLLMClient:
                         pt2, ct2, cached2 = usage_of(getattr(resp, "usage", None))
                         record_usage(model_id, pt2, ct2, cached_tokens=cached2,
                                      note="chat:retry-no-thinking")
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("重试仍失败: {}", e)
                     if not content.strip():
                         raise LLMError(
                             f"模型 {model_id} 仅返回思维链（{len(reasoning)} 字）而正文为空："

@@ -1,0 +1,610 @@
+{
+ "questions": [
+  {
+   "idx": 1,
+   "topic": "Docker",
+   "qtype": "concept",
+   "diff": "easy",
+   "question": "咱们先从基础聊起吧。你能说说 Docker 里容器和镜像到底有什么区别吗？",
+   "keywords": [
+    "容器",
+    "镜像",
+    "实例"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 2,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目直接围绕Docker容器与镜像区别，难度为easy基础概念题，表述清晰口语化，且符合concept题型并引用真实术语，未泄露答案。"
+   }
+  },
+  {
+   "idx": 2,
+   "topic": "MySQL",
+   "qtype": "concept",
+   "diff": "medium",
+   "question": "咱们聊聊 MySQL 索引吧。InnoDB 的索引底层用的是 B+ 树，你能说说为什么选 B+ 树而不是 B 树或者哈希表吗？顺便讲讲聚簇索引和二级索引在结构上有什么区别。",
+   "keywords": [
+    "B+树",
+    "索引",
+    "数据"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 1,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目紧扣 InnoDB B+ 树索引，难度符合 medium 应用层，表述清晰口语化，但参考资料未包含 B+ 树索引相关内容，仅部分术语可关联。"
+   }
+  },
+  {
+   "idx": 3,
+   "topic": "Redis",
+   "qtype": "scenario",
+   "diff": "medium",
+   "question": "咱们聊个实际场景。假设你有个商品查询接口，用 Redis 做缓存，但有人恶意拿不存在的商品 ID 疯狂请求，每次都绕过缓存打到数据库上。这种情况你怎么处理？说说你的思路。",
+   "keywords": [
+    "缓存穿透",
+    "查询",
+    "不存在"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 1,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目紧扣缓存穿透场景，难度适中且表述清晰，符合scenario题型且未泄露答案，但参考资料未提供缓存穿透相关术语，groundedness部分达标。"
+   }
+  },
+  {
+   "idx": 4,
+   "topic": "动态规划入门",
+   "qtype": "concept",
+   "diff": "hard",
+   "question": "咱们聊聊动态规划。假设你在解一个题，已经定义好了状态，接下来最关键的就是写状态转移方程。你能说说，你是怎么从题目里推导出状态转移方程的？有没有什么通用的思考方法？",
+   "keywords": [
+    "状态",
+    "转移",
+    "子问题"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 2,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目紧扣状态转移方程推导，难度符合hard原理深度，口语化清晰，引用参考资料中的状态转移方程概念，符合concept题型且未泄露答案。"
+   }
+  },
+  {
+   "idx": 5,
+   "topic": "MySQL",
+   "qtype": "code",
+   "diff": "hard",
+   "question": "咱们聊聊事务隔离级别。假设你有一张账户表，两个事务并发操作同一行，一个在扣款一个在查余额。你能写段 SQL 演示一下在可重复读级别下，为什么会出现「查到的余额和实际不一致」的现象吗？顺便说说 InnoDB 是怎么用 MVCC 和间隙锁来应对的。",
+   "keywords": [
+    "事务",
+    "隔离级别",
+    "脏读"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 2,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目紧扣事务隔离级别，要求写SQL演示可重复读下的不一致现象并解释MVCC和间隙锁，符合hard难度和code题型，口语化清晰，引用真实概念，且未泄露答案。"
+   }
+  },
+  {
+   "idx": 6,
+   "topic": "Mock 与 Stub",
+   "qtype": "concept",
+   "diff": "easy",
+   "question": "咱们先聊个基础点的。你在写单元测试的时候，Mock 和 Stub 这两个词经常一起出现，你能说说它们到底有什么区别吗？",
+   "keywords": [
+    "Mock",
+    "Stub",
+    "行为"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 2,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目直接围绕 Mock 与 Stub 的区别展开，口语化清晰，难度基础，符合概念题型，且未泄露答案。"
+   }
+  },
+  {
+   "idx": 7,
+   "topic": "性能测试方法",
+   "qtype": "scenario",
+   "diff": "medium",
+   "question": "咱们聊个实际场景啊。假设你负责一个电商秒杀系统的性能测试，业务方要求保证大促时系统稳定。你会怎么设计压测策略？重点说说你怎么确定压测目标、场景和节奏。",
+   "keywords": [
+    "并发",
+    "响应",
+    "TPS"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 1,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目紧扣压测策略且符合场景题与中等难度，表述清晰无答案泄露，但未直接引用参考资料中的负载/压力/浸泡等具体术语。"
+   }
+  },
+  {
+   "idx": 8,
+   "topic": "PRD 写作指南",
+   "qtype": "concept",
+   "diff": "easy",
+   "question": "咱们先聊个基础的吧。你平时写 PRD 的时候，一般会包含哪些部分？能不能简单说说一份完整的 PRD 大概有哪些结构？",
+   "keywords": [
+    "PRD",
+    "需求",
+    "验收"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 2,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目围绕PRD结构这一概念性基础考点，口语化清晰，符合easy难度，且未泄露具体答案。"
+   }
+  },
+  {
+   "idx": 9,
+   "topic": "MVP 设计",
+   "qtype": "concept",
+   "diff": "medium",
+   "question": "咱们聊聊 MVP 设计吧。假设你要做一个新功能，时间很紧，你会怎么判断哪些东西该放进 MVP、哪些该砍掉？说说你遵循的核心原则是什么。",
+   "keywords": [
+    "MVP",
+    "最小",
+    "假设"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 2,
+     "type_fit": 1,
+     "answer_leak": 2
+    },
+    "reason": "题目围绕MVP原则且难度匹配，但以假设情境提问，更接近scenario题型而非纯概念解释，与concept题型部分不符。"
+   }
+  },
+  {
+   "idx": 10,
+   "topic": "GDP 与国民经济",
+   "qtype": "concept",
+   "diff": "easy",
+   "question": "咱们先从基础聊起。GDP 核算主要有哪几种方法？能不能简单说说每种方法是从什么角度去算的？",
+   "keywords": [
+    "GDP",
+    "生产",
+    "收入"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 1,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目紧扣GDP核算方法主题，难度基础、表述清晰且符合概念题型，但参考资料未列出具体核算方法，仅部分依托资料。"
+   }
+  },
+  {
+   "idx": 11,
+   "topic": "货币政策",
+   "qtype": "concept",
+   "diff": "medium",
+   "question": "咱们聊聊货币政策工具吧。你平时关注央行操作的话，能不能说说公开市场操作和存款准备金率，这两者在调节流动性上有什么不同？各自有什么优缺点？",
+   "keywords": [
+    "利率",
+    "准备金",
+    "公开市场"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 2,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目围绕货币政策工具，要求对比公开市场操作与存款准备金率在流动性调节上的差异及优缺点，符合概念解释题型，难度适中，表述口语化清晰，且未泄露答案。"
+   }
+  },
+  {
+   "idx": 12,
+   "topic": "民法物权",
+   "qtype": "concept",
+   "diff": "easy",
+   "question": "咱们先从基础聊起。你能说说民法里所有权都包含哪些内容吗？",
+   "keywords": [
+    "占有",
+    "使用",
+    "收益"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 1,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目围绕所有权内容、难度基础、表述清晰且符合概念题型，但参考资料未涉及所有权内容，缺乏直接依据。"
+   }
+  },
+  {
+   "idx": 13,
+   "topic": "合同法基础",
+   "qtype": "scenario",
+   "diff": "medium",
+   "question": "咱们聊个实际场景：甲口头答应把一批货卖给乙，价格数量都谈好了，但双方还没签书面合同，甲也没交货。后来甲反悔，说没签字合同不算数。你觉得这合同成立了吗？关键看哪些要件？",
+   "keywords": [
+    "要约",
+    "承诺",
+    "合意"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 2,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "该题以口头买卖合同反悔为情境，紧扣合同成立要件，难度适中，表述清晰，引用要约承诺等真实概念，符合scenario题型且未泄露答案。"
+   }
+  },
+  {
+   "idx": 14,
+   "topic": "古希腊哲学",
+   "qtype": "concept",
+   "diff": "easy",
+   "question": "咱们从基础聊起吧。你提到苏格拉底，那能不能用你自己的话说说，他那个著名的“苏格拉底方法”到底是怎么回事？",
+   "keywords": [
+    "产婆术",
+    "苏格拉底",
+    "定义"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 1,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目围绕苏格拉底方法且难度、清晰度、题型匹配，但参考资料未包含该概念的具体内容，仅凭主题关联。"
+   }
+  },
+  {
+   "idx": 15,
+   "topic": "逻辑学基础",
+   "qtype": "concept",
+   "diff": "medium",
+   "question": "咱们聊聊逻辑学基础。你能先说说什么是三段论吗？最好举个简单例子，并指出它的大前提、小前提和结论。",
+   "keywords": [
+    "前提",
+    "结论",
+    "推理"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 1,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目紧扣三段论概念并要求举例说明，符合medium应用难度和concept题型，口语清晰无答案泄露，但参考资料未包含三段论相关内容，故groundedness部分达标。"
+   }
+  },
+  {
+   "idx": 16,
+   "topic": "英语语法时态",
+   "qtype": "concept",
+   "diff": "easy",
+   "question": "咱们聊聊完成时态吧。你能简单说说现在完成时和一般过去时的主要区别是什么吗？",
+   "keywords": [
+    "完成",
+    "过去",
+    "现在"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 2,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目围绕完成时态与一般过去时的区别，符合概念解释题型，难度基础，表述清晰且未泄露答案，参考资料中时态部分支持该概念。"
+   }
+  },
+  {
+   "idx": 17,
+   "topic": "雅思写作评分",
+   "qtype": "concept",
+   "diff": "medium",
+   "question": "咱们聊聊雅思写作评分吧。你能说说 TR（Task Response）这个维度主要考察什么吗？评分时你会重点看哪些方面？",
+   "keywords": [
+    "任务",
+    "回应",
+    "扣题"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 2,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目围绕雅思写作TR评分维度，口语化清晰，符合概念解释题型，未泄露答案，难度适中。"
+   }
+  },
+  {
+   "idx": 18,
+   "topic": "设计思维",
+   "qtype": "concept",
+   "diff": "easy",
+   "question": "咱们先聊个基础的吧。设计思维通常被概括成五个步骤，你能按顺序说说这五步分别是什么吗？",
+   "keywords": [
+    "移情",
+    "定义",
+    "原型"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 0,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目紧扣设计思维五步流程且难度、清晰度、题型均达标，但参考资料中无设计思维相关内容，缺乏依据。"
+   }
+  },
+  {
+   "idx": 19,
+   "topic": "人机工程学",
+   "qtype": "concept",
+   "diff": "medium",
+   "question": "咱们聊聊座椅设计吧。从人机工程学角度，你觉得设计一把办公椅时，最关键的几个要点是什么？可以结合坐姿、支撑和调节这些方面说说。",
+   "keywords": [
+    "座椅",
+    "高度",
+    "腰椎"
+   ],
+   "judge": {
+    "scores": {
+     "topic_relevance": 2,
+     "difficulty_fit": 2,
+     "clarity": 2,
+     "groundedness": 1,
+     "type_fit": 2,
+     "answer_leak": 2
+    },
+    "reason": "题目紧扣座椅设计的人机工程学要点，难度适中且口语清晰，但参考资料仅提供人体测量等基础概念，未直接涉及座椅设计术语，故groundedness部分达标。"
+   }
+  }
+ ],
+ "followups": [
+  {
+   "idx": 1,
+   "orig_q": "请解释 Docker 容器与镜像的区别",
+   "followup": "那镜像和容器真的一样吗？比如镜像能改吗，容器跑起来后能写东西吗？",
+   "expect": [
+    "区别",
+    "模板",
+    "实例",
+    "运行时"
+   ],
+   "judge": {
+    "scores": {
+     "targeted": 2,
+     "depth": 2,
+     "brevity": 2,
+     "natural": 2
+    },
+    "reason": "追问直接针对遗漏点，通过镜像可改性和容器可写性深挖只读模板与运行实例的区别，简短自然。"
+   }
+  },
+  {
+   "idx": 2,
+   "orig_q": "什么是 InnoDB B+ 树索引？为什么不用红黑树？",
+   "followup": "你提到磁盘友好，那B+树叶子节点的链表具体怎么帮范围查询？跟红黑树比，扫10条数据IO次数差多少？",
+   "expect": [
+    "范围",
+    "叶子",
+    "扫描"
+   ],
+   "judge": {
+    "scores": {
+     "targeted": 2,
+     "depth": 2,
+     "brevity": 2,
+     "natural": 2
+    },
+    "reason": "追问精准针对叶子链表与IO次数两个遗漏点，用具体对比深挖，语言简洁自然。"
+   }
+  },
+  {
+   "idx": 3,
+   "orig_q": "Redis 缓存穿透怎么解决？",
+   "followup": "光加缓存不够吧？要是查的数据压根不存在，每次都打到数据库咋办？布隆过滤器或空值缓存你了解吗？",
+   "expect": [
+    "布隆",
+    "空值",
+    "校验"
+   ],
+   "judge": {
+    "scores": {
+     "targeted": 2,
+     "depth": 2,
+     "brevity": 2,
+     "natural": 2
+    },
+    "reason": "追问精准覆盖布隆过滤器和空值缓存两个遗漏点，并深挖数据库压力场景，语言自然简洁。"
+   }
+  },
+  {
+   "idx": 4,
+   "orig_q": "KANO 模型分几类需求？",
+   "followup": "除了基本型和期望型，KANO模型还有哪几类需求？比如兴奋型、无差异型、反向型，能具体说说吗？",
+   "expect": [
+    "兴奋",
+    "无差异",
+    "反向"
+   ],
+   "judge": {
+    "scores": {
+     "targeted": 2,
+     "depth": 1,
+     "brevity": 2,
+     "natural": 2
+    },
+    "reason": "追问直接指向遗漏的三类需求，但已把答案列出，深挖不足。"
+   }
+  },
+  {
+   "idx": 5,
+   "orig_q": "MVP 的设计原则是什么？",
+   "followup": "你提到快速开发，那怎么理解'最小可行'？它要验证什么假设，后续又怎么迭代呢？",
+   "expect": [
+    "假设",
+    "验证",
+    "迭代"
+   ],
+   "judge": {
+    "scores": {
+     "targeted": 2,
+     "depth": 2,
+     "brevity": 2,
+     "natural": 2
+    },
+    "reason": "追问精准覆盖三个遗漏点，层层递进深挖，语言简洁自然。"
+   }
+  },
+  {
+   "idx": 6,
+   "orig_q": "GDP 的三种核算方法？",
+   "followup": "那另外两种呢？收入法和支出法分别怎么算？它们和GDP有啥恒等关系？",
+   "expect": [
+    "收入",
+    "支出",
+    "恒等"
+   ],
+   "judge": {
+    "scores": {
+     "targeted": 2,
+     "depth": 2,
+     "brevity": 2,
+     "natural": 2
+    },
+    "reason": "追问精准覆盖收入法、支出法及恒等关系三个遗漏点，且层层深入、语言自然简洁。"
+   }
+  },
+  {
+   "idx": 7,
+   "orig_q": "苏格拉底方法的核心是什么？",
+   "followup": "你刚说核心是提问，那苏格拉底这提问法又叫什么术？他先假装无知跟人聊，这步叫啥？最后想聊出啥？",
+   "expect": [
+    "产婆",
+    "反讽",
+    "定义"
+   ],
+   "judge": {
+    "scores": {
+     "targeted": 2,
+     "depth": 2,
+     "brevity": 2,
+     "natural": 2
+    },
+    "reason": "追问精准覆盖产婆术、反讽、定义澄清三个遗漏点，层层深挖且语言自然简洁。"
+   }
+  },
+  {
+   "idx": 8,
+   "orig_q": "B+ 树索引为什么比红黑树快？",
+   "followup": "多叉确实能降高度，但数据库为啥不只看高度？磁盘IO和扇区对齐这块，B+树具体怎么占优的？",
+   "expect": [
+    "磁盘",
+    "IO",
+    "扇区"
+   ],
+   "judge": {
+    "scores": {
+     "targeted": 2,
+     "depth": 2,
+     "brevity": 2,
+     "natural": 2
+    },
+    "reason": "追问精准指向磁盘IO与扇区对齐两个遗漏点，并深挖B+树的具体优势，语言自然简洁。"
+   }
+  }
+ ],
+ "agg_questions": {
+  "topic_relevance": 2.0,
+  "difficulty_fit": 2.0,
+  "clarity": 2.0,
+  "groundedness": 1.47,
+  "type_fit": 1.95,
+  "answer_leak": 2.0
+ },
+ "agg_followups": {
+  "targeted": 2.0,
+  "depth": 1.88,
+  "brevity": 2.0,
+  "natural": 2.0
+ }
+}
