@@ -1,3 +1,0 @@
-﻿N=100,000  p50=     11.5ms  p95=     11.9ms  idx=exact  mem=390.62MB  鍐疯杞?2389.6ms  (鐏屾暟鎹?46.5s)
-
-缁撴灉宸插啓鍏?bench\scale_result_100k_exact.md
