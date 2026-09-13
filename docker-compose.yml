@@ -1,0 +1,115 @@
+version: "3.9"
+
+# 本项目的一键本地启动编排
+# 用法：
+#   docker compose up                  # 后台启动
+#   docker compose up -d               # 后台启动
+#   docker compose down                # 停
+#   docker compose logs -f backend     # 看后端日志
+#   docker compose exec backend bash   # 进后端容器调试
+#
+# 生产提示：此 compose 仅供本地与演示环境；生产部署应走 1Panel / K8s，
+# 数据库使用平台托管实例（参见 deploy/README.md）。
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: interview-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pwd_change_me
+      MYSQL_DATABASE: interview_agent
+      MYSQL_USER: interview_agent
+      MYSQL_PASSWORD: interview_agent_pwd
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-proot_pwd_change_me"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: interview-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: interview-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # 监听端口（容器内）
+      PORT: 8002
+      BASE_URL: /app/interview-agent/
+      DEBUG: "true"
+      LOG_LEVEL: INFO
+      # 数据库走容器内 MySQL
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: interview_agent
+      MYSQL_PASSWORD: interview_agent_pwd
+      MYSQL_DATABASE: interview_agent
+      # Redis 走容器内
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # LLM Key（占位——真实 Key 不要写进 compose，应在 .env 或平台注入）
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TEMPERATURE: "0.7"
+      LLM_MAX_TOKENS: "4096"
+      LLM_TIMEOUT: "60"
+      LLM_THINKING_MODE: disabled
+      LLM_PROVIDER_KEYS: ${LLM_PROVIDER_KEYS:-{}}
+      LLM_PROVIDER_BASE_URLS: ${LLM_PROVIDER_BASE_URLS:-{}}
+      # Embedding（SiliconFlow bge-m3）
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      # Rerank
+      RERANK_BASE_URL: ${RERANK_BASE_URL:-https://api.siliconflow.cn/v1}
+      RERANK_MODEL: ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
+      RERANK_API_KEY: ${RERANK_API_KEY:-}
+      # 成本护栏
+      LLM_BUDGET_YUAN: "30"
+      # 积分
+      CREDIT_ENFORCE: "true"
+      DEFAULT_CREDIT_GRANT: "10000"
+      CREDIT_RECHARGE_ENABLED: "false"
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:
+  redis_data:

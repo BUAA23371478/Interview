@@ -9,6 +9,8 @@ from app.agents.evaluator import SKIP_KEYWORDS
 
 class PracticeEvaluator(BaseAgent):
     name = "practice_evaluator"
+    task = "score"
+    name = "practice_evaluator"
     description = "练习答案评分"
 
     SYSTEM_PROMPT = """你是面试评分官，为练习答案打分并给出反馈。输出严格 JSON：

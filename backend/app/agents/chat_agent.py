@@ -13,6 +13,8 @@ SYSTEM_PROMPT = """你是一个友好的 AI 面试陪练助手。用户可能在
 
 class ChatAgent(BaseAgent):
     name = "chat_agent"
+    task = "chat"
+    name = "chat_agent"
     description = "闲聊与引导性对话"
 
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:

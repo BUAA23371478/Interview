@@ -76,12 +76,43 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_temperature: float = 0.7
     llm_max_tokens: int = 4096
+    llm_timeout: float = 60.0
     llm_json_temperature: float = 0.2
+    # 思考模式控制（DeepSeek V4 系列等默认开启思考）：
+    #   disabled = 显式关闭（默认）。实测：关闭后正文首字 364ms 且必然返回正文；
+    #              保持默认则首字 988~1688ms，且 max_tokens 偏小时正文为 0 字。
+    #   auto     = 交给模型默认（仅在确实需要长链推理的场景使用）
+    llm_thinking_mode: str = "disabled"
+    # max_tokens 低于该值时强制关闭思考——思考链会吃掉全部预算导致正文为空
+    llm_thinking_min_tokens: int = 256
     # DeepSeek Responses API 模式（deepseek-v4-flash）：true 走 responses.create
     # base_url 无 /v1 后缀（https://api.deepseek.com），model 用 deepseek-v4-flash
     llm_responses_mode: bool = False
     llm_responses_model: str = "deepseek-v4-flash"
     llm_responses_base_url: str = "https://api.deepseek.com"
+
+    # ---- 多 provider 凭据与接入点 ----
+    # 真实缺陷：若所有 provider 共用一把 key，跨 provider 降级必然 401——
+    # 「降级链」就只是纸面上的配置，一次真故障都兜不住。
+    # 这里按 provider 分别保存 key 与接入点，实现真正的多厂商路由。
+    #
+    # 环境变量用 JSON：LLM_PROVIDER_KEYS={"deepseek":"sk-...","aliyun":"sk-..."}
+    #                 LLM_PROVIDER_BASE_URLS={"aliyun":"https://xxx.maas.aliyuncs.com/compatible-mode/v1"}
+    llm_provider_keys: dict[str, str] = {}
+    llm_provider_base_urls: dict[str, str] = {}
+    llm_default_provider: str = "deepseek"
+
+    def provider_key(self, provider: str) -> str:
+        """按 provider 取服务端托管 key；未配置则回落到通用 LLM_API_KEY。"""
+        if provider:
+            k = (self.llm_provider_keys or {}).get(provider)
+            if k:
+                return k
+        return self.llm_api_key
+
+    def provider_base_url(self, provider: str, default: str) -> str:
+        """按 provider 取接入点（支持指向独享/私有化端点）。"""
+        return (self.llm_provider_base_urls or {}).get(provider) or default
 
     # ---- Embedding（OpenAI 兼容 /embeddings）----
     embedding_base_url: str = "https://api.siliconflow.cn/v1"
@@ -125,17 +156,24 @@ class Settings(BaseSettings):
             )
         return f"sqlite+aiosqlite:///{self.sqlite_path}"
 
-    # ---- 记忆 ----
+    # ---- Redis ----
     redis_host: str = "127.0.0.1"
     redis_port: int = 6379
     redis_password: Optional[str] = None
     redis_db: int = 0
     redis_short_term_ttl: int = 86400  # 短期会话 24h
+    # Sentinel HA（生产）："10.0.0.1:26379,10.0.0.2:26379"；非空时启用
+    redis_sentinels: str = ""
+    redis_master: str = "master"
 
     # ---- RAG ----
     rag_top_k: int = 5
-    rag_vector_weight: float = 0.6
-    rag_bm25_weight: float = 0.4
+    # 融合模式：rrf = 只用名次；score_norm = 两路各自 min-max 归一化后加权求和
+    # 融合权重必须按目标语料实测确定（见 bench/retrieval_eval.py），
+    # 固定权重在「某一路明显更强」的语料上会让融合低于最优单通道。
+    rag_fusion_mode: str = "score_norm"
+    rag_vector_weight: float = 0.35
+    rag_bm25_weight: float = 0.65
     rag_rrf_k: int = 60
     rag_chunk_size: int = 800
     rag_chunk_overlap: int = 100
@@ -143,6 +181,86 @@ class Settings(BaseSettings):
     rag_max_upload_mb: int = 50
     rag_max_candidates_for_rerank: int = 20
     rag_use_rerank: bool = False
+
+    # ---- 向量检索引擎（规模化：O(N) 全表扫描 → 内存矩阵 + ANN）----
+    # memory: 内存向量矩阵（numpy 批量余弦，万级以内足够）
+    # hnsw:   内存 HNSW ANN 索引（十万级以上，需 faiss-cpu）
+    rag_index_type: str = "auto"          # auto | memory | hnsw | brute
+    rag_index_path: str = ""              # 留空 = BACKEND_DIR/data/vector_index
+    rag_hnsw_m: int = 32                  # HNSW 每节点邻居数
+    rag_hnsw_ef_construction: int = 200
+    rag_hnsw_ef_search: int = 64
+    rag_ann_threshold: int = 200_000       # auto 模式下超过该规模自动用 HNSW
+                                           # 依据实测：10 万 chunk 精确检索 P50 仅 11.5ms，
+                                           # HNSW 冷启动构建反需 105s —— 阈值远高于 10 万才划算
+    rag_index_auto_reload: bool = True    # 索引变更后自动重载
+    rag_index_reload_interval: int = 5    # 秒；检查索引版本
+
+    # ---- Embedding 缓存与失败冷却 ----
+    embedding_cache_size: int = 2048      # 查询向量 LRU 缓存条数
+    embedding_cache_ttl: int = 3600       # 秒
+    embedding_cooldown: int = 60          # 失败后冷却秒数（冷却期内走降级路径，之后自动恢复）
+    # 单次 /embeddings 请求的最大文本数。各服务商上限不同（SiliconFlow bge-m3 为 64），
+    # 超限会整批 400；因此内部必须切批而不是「一次梭哈」。
+    embedding_batch_size: int = 32
+    embedding_concurrency: int = 4        # 批次并发度（受服务商 QPS 限制，过高会 429）
+    embedding_max_retries: int = 3
+    # 向量磁盘缓存：key = sha256(model + text)。入库/评测反复 embedding 同一批文本时
+    # 命中缓存可省下绝大部分费用与时间（语料重建、A/B 复测都靠它）
+    embedding_cache_db: str = ""          # 留空 = BACKEND/data/embed_cache.db
+
+    # ---- Reranker（Cross-Encoder 精排）----
+    # 与向量召回的本质区别：双塔各自编码、只比向量距离；Cross-Encoder 把 query 与
+    # 候选拼在一起过一遍模型，能捕捉否定/条件/数字等细粒度差异，精度显著更高但更慢。
+    rerank_enabled: bool = False
+    rerank_base_url: str = "https://api.siliconflow.cn/v1"
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_api_key: str = ""
+    rerank_timeout: float = 30.0
+    rerank_candidates: int = 20           # 送入精排的候选数（召回 top_k × N）
+    rerank_batch: int = 20                # 单次精排请求的文档数上限
+    # 备用 provider 列表（JSON）：主调用失败时按顺序尝试，每条格式
+    #   {"provider": "aliyun", "base_url": "https://.../compatible-mode/v1",
+    #    "model": "qwen3.7-text-rerank"}
+    # key 默认从 LLM_PROVIDER_KEYS[provider] 取，单独覆盖时填 api_key。
+    rerank_fallbacks: str = ""
+
+    # ---- LLM 成本护栏（生产级：防止一个 bug 烧掉整月预算）----
+    # 超限后 LLM 调用被直接拒绝（不是记账后后悔），并保留完整流水可追溯。
+    llm_budget_yuan: float = 30.0         # 0 = 不限制
+    llm_budget_ledger: str = ""           # 留空 = BACKEND/data/llm_spend.json
+    llm_budget_scope: str = "global"      # global = 进程全局；tenant = 按用户（多租户隔离）
+
+    # ---- 积分计费 ----
+    # 1 元 = CREDITS_PER_YUAN 积分（汇率在 gateway/credits.py 中固定）
+    credit_enforce: bool = True           # 为 False 时只记录不拦截（本地调试用）
+    default_credit_grant: int = 10_000    # 新用户初始赠送积分（≈10 元额度）
+    credit_recharge_enabled: bool = False # 充值走占位通道，未接真实支付前保持关闭
+
+    # ---- SSE 事件流可靠性 ----
+    # 每个会话保留最近 N 条事件用于断线回放（Last-Event-ID），实现「先产内容后连流」不丢事件
+    sse_replay_buffer: int = 256
+    sse_heartbeat: int = 15               # 秒；无事件时发送 ping 保活，防反代 60s 断连
+
+    # ---- 限流（Redis Lua 滑动窗口）----
+    rate_limit_enabled: bool = True
+    rate_limit_default: int = 100         # 默认 QPS 上限
+    rate_limit_global_qps: int = 500      # 全局
+    rate_limit_user_qps: int = 20         # 每用户
+    rate_limit_ip_qps: int = 50           # 每 IP
+
+    # ---- 异步任务队列 ----
+    task_queue_max_size: int = 10000
+    task_queue_concurrency: int = 8       # worker 数
+    task_queue_enabled: bool = True
+
+    # ---- Uvicorn 多实例 ----
+    uvicorn_workers: int = 4              # 生产建议 4-8 worker × CPU 核数
+
+    # ---- 会话并发控制 ----
+    # 同一会话同时只允许一个请求在写（乐观锁 CAS）：冲突方拿到 409 而不是覆盖丢数据
+    session_lock_ttl: int = 30            # 秒；会话写锁最长持有时间（防死锁）
+    session_max_retry: int = 3            # 乐观锁冲突重试次数
 
     # ---- 知识库审核 ----
     # AI 预审通过阈值（0-100）：>= 该值才推荐进入待人工复核
@@ -170,6 +288,8 @@ class Settings(BaseSettings):
     consecutive_to_upgrade: int = 2   # 连对 N 题升级难度
     consecutive_to_downgrade: int = 2 # 连错 N 题降级难度
     default_difficulty: str = "medium"
+    # 出题难度来源：adaptive = 由难度状态机裁决（默认）；plan = 完全按预生成计划（用于 A/B 对照）
+    difficulty_mode: str = "adaptive"
     max_quiz_rounds: int = 20
 
     # ---- 目录 ----
@@ -193,6 +313,13 @@ class Settings(BaseSettings):
     @property
     def bm25_cache_path(self) -> Path:
         return self.data_dir / "bm25_corpus.pkl"
+
+    @property
+    def vector_index_dir(self) -> Path:
+        """ANN 索引持久化目录。"""
+        p = Path(self.rag_index_path) if self.rag_index_path else self.data_dir / "vector_index"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
 
 
 @lru_cache

@@ -15,6 +15,8 @@ COMPANY_STYLE = {
 
 
 class PracticeQuestionAgent(BaseAgent):
+    name = "practice_agent"
+    task = "ask_question"
     name = "practice_question"
     description = "练习模式出题"
 

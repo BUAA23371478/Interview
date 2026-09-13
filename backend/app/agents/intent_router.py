@@ -10,6 +10,8 @@ INTENT_TYPES = ["start_interview", "answer_question", "input_jd", "use_skill", "
 
 class IntentRouter(BaseAgent):
     name = "intent_router"
+    task = "chat"
+    name = "intent_router"
     description = "意图识别与路由分发"
 
     SYSTEM_PROMPT = """你是意图分类器。判断用户输入的意图，输出严格 JSON：

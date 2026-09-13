@@ -9,8 +9,9 @@
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
@@ -23,14 +24,73 @@ from app.agents.question_planner import question_planner
 from app.agents.study_planner import study_planner
 from app.config import settings
 from app.deps import MaooUser
+from app.gateway import credits as credit_svc
+from app.gateway.router import route as route_model
 from app.memory import long_term
 from app.memory.short_term import short_term_memory
+from app.observability import (current_meter, log_summary, new_meter, span,
+                               summarize)
 from app.rag.engine import query_engine
 from app.sse.emitter import sse_emitter, sse_manager
 
 
 def _session_key(session_id: str) -> str:
     return f"interview:{session_id}"
+
+
+# 会话级写锁：同一会话同一时刻只允许一个请求走「读-改-写」，
+# 防同一用户双击/网络重试导致两道并发请求交叉覆盖。
+_session_locks: Dict[str, asyncio.Lock] = {}
+
+
+def _session_lock(session_id: str) -> asyncio.Lock:
+    lock = _session_locks.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _session_locks[session_id] = lock
+    return lock
+
+
+async def _emit(session_id: str, event: str, data: Dict[str, Any]) -> None:
+    """推送 SSE 事件。观测类动作不允许影响主流程，异常一律吞掉只记日志。"""
+    try:
+        await sse_emitter.emit(_session_key(session_id), event, data)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("SSE 推送失败（不影响主流程）: {}", e)
+
+
+# ── 积分：预扣 → 结算 ─────────────────────────────────────────────────
+async def _pre_charge(user: MaooUser, request_id: str, tasks: tuple,
+                      task_label: str) -> Dict[str, Any]:
+    """按任务清单估算并冻结积分。
+
+    预估取各任务档位模型的单价上限，宁可多冻结（结算会退回），不拖欠。
+    """
+    amount = 0
+    for t in tasks:
+        plan = route_model(t)
+        mid = plan.primary.id if plan.primary else "deepseek-chat"
+        amount += credit_svc.estimate_credits(t, mid)
+    return await credit_svc.pre_deduct(user.user_id, request_id, task_label,
+                                       "mixed", amount=amount)
+
+
+async def _settle_charge(user: MaooUser, request_id: str, frozen: int,
+                         task_label: str) -> Dict[str, Any]:
+    """按真实 usage 结算（多退少补）。"""
+    meter = current_meter()
+    snap = meter.snapshot() if meter else {}
+    by_model = snap.get("by_model") or {}
+    model_desc = ",".join(sorted(by_model.keys())) or "unknown"
+    res = await credit_svc.settle(
+        user.user_id, request_id, frozen=frozen, model_id=model_desc,
+        task=task_label,
+        prompt_tokens=int(snap.get("prompt_tokens", 0) or 0),
+        completion_tokens=int(snap.get("completion_tokens", 0) or 0),
+        cost_yuan=float(snap.get("cost_yuan", 0.0) or 0.0),
+    )
+    return {**res, "tokens": snap.get("total_tokens", 0),
+            "cost_yuan": snap.get("cost_yuan", 0.0), "models": list(by_model)}
 
 
 def _new_state(user: MaooUser, jd_text: str, resume_text: str,
@@ -47,6 +107,8 @@ def _new_state(user: MaooUser, jd_text: str, resume_text: str,
         "current_question_idx": 0,
         "qa_history": [],
         "score_records": [],
+        "difficulty_trace": [],
+        "trace": [],
         "consecutive_correct": 0,
         "consecutive_wrong": 0,
         "followup_count": 0,
@@ -60,78 +122,214 @@ def _new_state(user: MaooUser, jd_text: str, resume_text: str,
     }
 
 
-async def _prepare_interview(state: Dict[str, Any]) -> Optional[str]:
-    """JD→简历→RAG→规划，返回错误信息或 None。"""
-    await jd_analyzer.run(state)
-    if not state.get("jd_parsed"):
-        return "岗位描述解析失败，请检查内容"
+# 各阶段的 LLM 任务清单（用于积分预估；与 gateway/router 的任务表一一对应）
+_START_TASKS = ("jd_parse", "resume_parse", "question_plan", "ask_question")
+_ANSWER_TASKS = ("score", "ask_question")
 
-    if state.get("resume_text"):
-        await resume_analyzer.run(state)
 
-    # RAG 检索：用技术栈 + 核心能力做查询
-    jd = state.get("jd_parsed") or {}
-    query_terms = list(jd.get("tech_stack", [])) + list(jd.get("core_competencies", []))
-    query = " ".join(query_terms) if query_terms else (jd.get("summary") or "AI Agent 面试")
+_JD_STOPWORDS = {    "岗位", "职责", "要求", "负责", "熟悉", "掌握", "了解", "具备", "优先", "加分", "相关",
+    "经验", "能力", "团队", "工作", "良好", "以上", "以及", "能够", "具有", "参与", "独立",
+    "我们", "以及", "熟练", "精通", "本科", "硕士", "以上学历", "等相关", "者优先",
+}
+
+
+def extract_jd_terms(text: str, top_k: int = 12) -> str:
+    """从原始 JD 文本抽取关键词，作为 RAG 检索 query。
+
+    为什么需要它：初版要等 `jd_analyzer` 解析出 tech_stack 之后才能构造检索 query，
+    这让「检索」被迫串在「JD 解析」后面（多等一整个 LLM 往返）。
+    用 TF-IDF 关键词抽取（纯本地、毫秒级）先把 query 造出来，
+    检索就能和 JD/简历解析**并发**执行，启动关键路径因此缩短。
+    """
+    text = (text or "").strip()
+    if not text:
+        return "AI Agent 面试"
     try:
-        rag_context = await query_engine.search_for_agent(query, top_k=settings.rag_top_k)
-        state["rag_context"] = rag_context
+        import jieba.analyse
+        tags = jieba.analyse.extract_tags(text, topK=top_k * 2)
+        terms = [t for t in tags if t and t not in _JD_STOPWORDS]
+        if terms:
+            return " ".join(terms[:top_k])
     except Exception as e:  # noqa: BLE001
-        logger.warning("RAG 检索失败: {}", e)
-        state["rag_context"] = ""
+        logger.debug("jieba 关键词抽取不可用，退回截断原文: {}", e)
+    return text[:600]
+
+
+async def _prepare_interview(state: Dict[str, Any]) -> Optional[str]:
+    """JD → 简历 → RAG → 规划；返回错误信息或 None。
+
+    并行化：RAG 检索与「JD 解析 → 简历匹配」链之间**没有数据依赖**
+    （检索只需原始 JD 文本 + 本地关键词抽取），因此并发执行。
+    关键路径从 sum(JD, 简历, RAG) 压缩为 max(JD + 简历, RAG)。
+    """
+    sid = state["session_id"]
+
+    async def _rag_task() -> str:
+        query = extract_jd_terms(state.get("jd_text") or "")
+        await _emit(sid, "stage", {"stage": "rag", "status": "start", "query": query[:60]})
+        try:
+            async with span(state, "rag_retrieve") as sp:
+                sp["meta"] = {"query": query[:80]}
+                ctx = await query_engine.search_for_agent(query, top_k=settings.rag_top_k)
+            await _emit(sid, "stage", {"stage": "rag", "status": "done",
+                                       "chars": len(ctx or "")})
+            return ctx
+        except Exception as e:  # noqa: BLE001
+            logger.warning("RAG 检索失败（降级为无参考资料出题）: {}", e)
+            await _emit(sid, "stage", {"stage": "rag", "status": "degraded",
+                                       "reason": str(e)[:120]})
+            return ""
+
+    async def _profile_task() -> Optional[str]:
+        await _emit(sid, "stage", {"stage": "jd_analyzer", "status": "start"})
+        async with span(state, "jd_analyzer"):
+            await jd_analyzer.run(state)
+        if not state.get("jd_parsed"):
+            return "岗位描述解析失败，请检查内容"
+        await _emit(sid, "stage", {"stage": "jd_analyzer", "status": "done",
+                                   "title": (state.get("jd_parsed") or {}).get("title", "")})
+        if state.get("resume_text"):
+            await _emit(sid, "stage", {"stage": "resume_analyzer", "status": "start"})
+            async with span(state, "resume_analyzer"):
+                await resume_analyzer.run(state)
+            await _emit(sid, "stage", {"stage": "resume_analyzer", "status": "done"})
+        return None
+
+    rag_context, profile_err = await asyncio.gather(_rag_task(), _profile_task())
+    state["rag_context"] = rag_context or ""
+    if profile_err:
+        return profile_err
 
     state["total_questions"] = state["total_rounds"]
-    await question_planner.run(state)
+    await _emit(sid, "stage", {"stage": "question_planner", "status": "start"})
+    async with span(state, "question_planner"):
+        await question_planner.run(state)
     if not state.get("question_plan"):
         return "题目规划失败，请重试"
+    await _emit(sid, "stage", {"stage": "question_planner", "status": "done",
+                               "rounds": len(state.get("question_plan") or [])})
     return None
 
 
 async def start_interview(user: MaooUser, jd_text: str, resume_text: str,
                           total_rounds: int, difficulty: str) -> Dict[str, Any]:
     """启动面试，返回第一题。"""
+    new_meter()  # 请求级计量器：本请求所有 LLM 调用的 token/成本都记在这里
     state = _new_state(user, jd_text, resume_text, total_rounds, difficulty)
-    err = await _prepare_interview(state)
-    if err:
-        return {"ok": False, "message": err, "session_id": state["session_id"]}
+    sid = state["session_id"]
 
-    # 加载长期薄弱点
-    profile = await long_term.get_profile(user.user_id)
-    state["long_term_weaknesses"] = (profile or {}).get("persistent_weaknesses", [])[:5]
+    # 积分预扣：余额不足直接拒绝，不产生任何 LLM 成本
+    request_id = f"{sid}:start"
+    charge = await _pre_charge(user, request_id, _START_TASKS, "interview.start")
+    if not charge.get("ok"):
+        return {"ok": False, "message": charge.get("message", "积分不足"),
+                "session_id": sid, "insufficient_credits": True}
 
-    # 出第一题
-    question = await interviewer.ask_question(state)
-    state["current_question_text"] = question
-    state["current_question"] = {
-        "question": question, "idx": 0,
-        "topic": (state["question_plan"][0] if state["question_plan"] else {}).get("topic", ""),
-    }
-    state["awaiting_answer"] = True
+    await _emit(sid, "interview_started", {"session_id": sid,
+                                           "total_rounds": state["total_rounds"]})
+    try:
+        err = await _prepare_interview(state)
+        if err:
+            await _emit(sid, "error", {"stage": "prepare", "message": err})
+            sse_manager.mark_done(_session_key(sid))
+            return {"ok": False, "message": err, "session_id": sid}
 
-    _save_session(state)
-    await long_term.add_footprint(user.user_id, "start_interview", jd_text[:80])
+        # 加载长期薄弱点
+        profile = await long_term.get_profile(user.user_id)
+        state["long_term_weaknesses"] = (profile or {}).get("persistent_weaknesses", [])[:5]
 
-    return {
-        "ok": True,
-        "session_id": state["session_id"],
-        "question": question,
-        "question_index": 0,
-        "total_rounds": state["total_rounds"],
-        "difficulty": state["current_difficulty"],
-        "jd_title": (state.get("jd_parsed") or {}).get("title", ""),
-    }
+        # 出第一题
+        await _emit(sid, "stage", {"stage": "interviewer.ask_question", "status": "start"})
+        async with span(state, "interviewer.ask_question"):
+            question = await interviewer.ask_question(state)
+        state["current_question_text"] = question
+        state["current_question"] = {
+            "question": question, "idx": 0,
+            "topic": (state["question_plan"][0] if state["question_plan"] else {}).get("topic", ""),
+        }
+        state["awaiting_answer"] = True
+
+        _save_session(state)  # 首次写入：无条件
+        await long_term.add_footprint(user.user_id, "start_interview", jd_text[:80])
+        await _emit(sid, "question", {
+            "question": question, "question_index": 0,
+            "total_rounds": state["total_rounds"],
+            "difficulty": state["current_difficulty"],
+            "should_followup": False,
+        })
+
+        log_summary(state, "interview.start")
+        settled = await _settle_charge(user, request_id, charge.get("credits", 0),
+                                       "interview.start")
+        await _emit(sid, "settled", settled)
+        return {
+            "ok": True,
+            "session_id": sid,
+            "question": question,
+            "question_index": 0,
+            "total_rounds": state["total_rounds"],
+            "difficulty": state["current_difficulty"],
+            "jd_title": (state.get("jd_parsed") or {}).get("title", ""),
+            "trace": summarize(state),
+            "credits": settled,
+        }
+    except Exception:
+        # 未产生有效产出时退回冻结积分，避免用户为失败请求付费
+        await credit_svc.release(user.user_id, request_id,
+                                 frozen=charge.get("credits", 0),
+                                 task="interview.start")
+        raise
 
 
 async def answer_interview(user: MaooUser, session_id: str, answer: str) -> Dict[str, Any]:
-    """提交回答 → 评分 → 决定下一步。"""
+    """提交回答 → 评分 → 决定下一步。
+
+    并发保护：会话级写锁（同进程）+ 快照乐观锁（跨进程）。
+    冲突时返回 `conflict=True`，路由层转 409，客户端重试即可，不会丢答题记录。
+    """
+    lock = _session_lock(session_id)
+    if lock.locked():
+        # 同一会话已有请求在写：直接快速失败，避免两路 LLM 调用白烧 token
+        logger.warning("会话 {} 正在处理中，拒绝并发请求", session_id)
+        return {"ok": False, "conflict": True, "message": "该面试正在处理中，请稍后重试"}
+
+    async with lock:
+        return await _answer_interview_locked(user, session_id, answer)
+
+
+async def _answer_interview_locked(user: MaooUser, session_id: str,
+                                   answer: str) -> Dict[str, Any]:
+    new_meter()
     state = _load_session(session_id, user)
     if not state:
         return {"ok": False, "message": "会话不存在或已过期"}
+    expected_version = state.get("_version")
     if state.get("interview_finished"):
+        # 已完成会话的重复提交：幂等返回，不重复计费
         return {"ok": True, "interview_finished": True,
                 "final_report": state.get("final_report"),
                 "study_plan": state.get("study_plan"), "session_id": session_id}
 
+    # 幂等键：同一题同一追问轮次的重复提交只扣一次费
+    request_id = f"{session_id}:q{state.get('current_question_idx', 0)}" \
+                 f"f{state.get('followup_count', 0)}"
+    charge = await _pre_charge(user, request_id, _ANSWER_TASKS, "interview.answer")
+    if not charge.get("ok"):
+        return {"ok": False, "insufficient_credits": True,
+                "message": charge.get("message", "积分不足")}
+    try:
+        return await _answer_body(user, session_id, answer, state,
+                                  expected_version, request_id, charge)
+    except Exception:
+        await credit_svc.release(user.user_id, request_id,
+                                 frozen=charge.get("credits", 0),
+                                 task="interview.answer")
+        raise
+
+
+async def _answer_body(user: MaooUser, session_id: str, answer: str,
+                       state: Dict[str, Any], expected_version: Optional[int],
+                       request_id: str, charge: Dict[str, Any]) -> Dict[str, Any]:
     state["last_user_answer"] = answer
     state["awaiting_answer"] = False
 
@@ -139,7 +337,8 @@ async def answer_interview(user: MaooUser, session_id: str, answer: str) -> Dict
     q_item = state.get("current_question") or {}
 
     # 评分
-    score = await evaluator.score_one(q_text, answer)
+    async with span(state, "evaluator.score_one"):
+        score = await evaluator.score_one(q_text, answer)
     score_record = {"question": q_text, "answer": answer, "score": score}
     state["score_records"].append(score_record)
     state["qa_history"].append(score_record)
@@ -152,6 +351,13 @@ async def answer_interview(user: MaooUser, session_id: str, answer: str) -> Dict
         and state["followup_count"] < state["max_followup"]
     )
     state["should_followup"] = should_followup
+
+    await _emit(session_id, "scored", {
+        "score": score.get("correctness"),
+        "is_correct": bool(score.get("is_correct")),
+        "difficulty": state["current_difficulty"],
+        "should_followup": should_followup,
+    })
 
     # 记录错题（低分）
     try:
@@ -171,11 +377,23 @@ async def answer_interview(user: MaooUser, session_id: str, answer: str) -> Dict
 
     if should_followup:
         state["followup_count"] += 1
-        followup_q = await interviewer.ask_followup(state)
+        async with span(state, "interviewer.ask_followup"):
+            followup_q = await interviewer.ask_followup(state)
         state["current_question_text"] = followup_q
         state["current_question"] = {**q_item, "is_followup": True}
         state["awaiting_answer"] = True
-        _save_session(state)
+        if not _save_session(state, expected_version):
+            return _conflict(session_id)
+        await _emit(session_id, "question", {
+            "question": followup_q, "should_followup": True,
+            "question_index": state["current_question_idx"],
+            "total_rounds": state["total_rounds"],
+            "difficulty": state["current_difficulty"],
+        })
+        log_summary(state, "interview.answer.followup")
+        settled = await _settle_charge(user, request_id, charge.get("credits", 0),
+                                       "interview.answer")
+        await _emit(session_id, "settled", settled)
         return {
             "ok": True, "session_id": session_id, "interview_finished": False,
             "should_followup": True, "question": followup_q,
@@ -183,24 +401,43 @@ async def answer_interview(user: MaooUser, session_id: str, answer: str) -> Dict
             "total_rounds": state["total_rounds"],
             "difficulty": state["current_difficulty"],
             "score": correctness,
+            "trace": summarize(state),
+            "credits": settled,
         }
 
     # 下一题或结束
     next_idx = state["current_question_idx"] + 1
     if next_idx >= len(state.get("question_plan", [])) or state.get("force_finish"):
-        result = await _finish_interview(user, state)
+        result = await _finish_interview(user, state, expected_version)
+        settled = await _settle_charge(user, request_id, charge.get("credits", 0),
+                                       "interview.answer")
+        await _emit(session_id, "settled", settled)
+        result["credits"] = settled
+        result["trace"] = summarize(state)
         return result
 
     state["current_question_idx"] = next_idx
     state["followup_count"] = 0
-    next_q = await interviewer.ask_question(state)
+    async with span(state, "interviewer.ask_question"):
+        next_q = await interviewer.ask_question(state)
     state["current_question_text"] = next_q
     state["current_question"] = {
         "question": next_q, "idx": next_idx,
         "topic": (state["question_plan"][next_idx] if next_idx < len(state.get("question_plan", [])) else {}).get("topic", ""),
     }
     state["awaiting_answer"] = True
-    _save_session(state)
+    if not _save_session(state, expected_version):
+        return _conflict(session_id)
+    await _emit(session_id, "question", {
+        "question": next_q, "should_followup": False,
+        "question_index": next_idx,
+        "total_rounds": state["total_rounds"],
+        "difficulty": state["current_difficulty"],
+    })
+    log_summary(state, "interview.answer.next")
+    settled = await _settle_charge(user, request_id, charge.get("credits", 0),
+                                   "interview.answer")
+    await _emit(session_id, "settled", settled)
     return {
         "ok": True, "session_id": session_id, "interview_finished": False,
         "should_followup": False, "question": next_q,
@@ -208,17 +445,33 @@ async def answer_interview(user: MaooUser, session_id: str, answer: str) -> Dict
         "total_rounds": state["total_rounds"],
         "difficulty": state["current_difficulty"],
         "score": correctness,
+        "trace": summarize(state),
+        "credits": settled,
     }
 
 
-async def _finish_interview(user: MaooUser, state: Dict[str, Any]) -> Dict[str, Any]:
+def _conflict(session_id: str) -> Dict[str, Any]:
+    """快照乐观锁冲突：不覆盖已有进度，交由客户端重试。"""
+    logger.warning("会话 {} 快照版本冲突，本次写入被拒", session_id)
+    return {"ok": False, "conflict": True,
+            "message": "会话状态已变更（可能在其他页面提交过），请刷新后重试",
+            "session_id": session_id}
+
+
+async def _finish_interview(user: MaooUser, state: Dict[str, Any],
+                            expected_version: Optional[int] = None) -> Dict[str, Any]:
     """面试结束：报告 + 复习计划 + 长期记忆。"""
     state["interview_finished"] = True
-    report = await evaluator.generate_report(state)
+    sid = state["session_id"]
+    await _emit(sid, "finishing", {"reason": "all_rounds_done"})
+
+    async with span(state, "evaluator.generate_report"):
+        report = await evaluator.generate_report(state)
     state["final_report"] = report
     state["weaknesses_to_remember"] = list(report.get("weaknesses", []))[:10]
 
-    await study_planner.run(state)
+    async with span(state, "study_planner.run"):
+        await study_planner.run(state)
 
     # 长期记忆写入
     await long_term.save_report(user.user_id, state["session_id"], "interview", report)
@@ -227,7 +480,12 @@ async def _finish_interview(user: MaooUser, state: Dict[str, Any]) -> Dict[str, 
     await long_term.add_footprint(user.user_id, "finish_interview",
                                   f"score={report.get('overall_score')}")
 
-    _save_session(state)
+    _save_session(state, expected_version)
+    await _emit(sid, "interview_finished", {
+        "final_report": report, "study_plan": state.get("study_plan"),
+    })
+    sse_manager.mark_done(_session_key(sid))
+    log_summary(state, "interview.finish")
     return {
         "ok": True, "session_id": state["session_id"], "interview_finished": True,
         "should_followup": False, "question": "",
@@ -236,6 +494,7 @@ async def _finish_interview(user: MaooUser, state: Dict[str, Any]) -> Dict[str, 
         "difficulty": state["current_difficulty"],
         "final_report": report,
         "study_plan": state.get("study_plan"),
+        "trace": summarize(state),
     }
 
 
@@ -295,8 +554,18 @@ async def list_history(user: MaooUser, limit: int = 30) -> list:
     return items
 
 
-def _save_session(state: Dict[str, Any]) -> None:
-    short_term_memory.save_snapshot(state["session_id"], state)
+def _save_session(state: Dict[str, Any], expected_version: Optional[int] = None) -> bool:
+    """保存会话快照。
+
+    expected_version=None → 首次写入（无条件）；
+    否则走乐观锁 CAS，返回 False 表示版本冲突（调用方须返回 409 而非覆盖）。
+    """
+    ok = short_term_memory.save_snapshot(
+        state["session_id"], state, expected_version=expected_version)
+    if ok:
+        # 本地状态推进版本号，便于同一请求内多次写
+        state["_version"] = int(state.get("_version") or 0) + 1
+    return ok
 
 
 def _load_session(session_id: str, user: MaooUser) -> Optional[Dict[str, Any]]:

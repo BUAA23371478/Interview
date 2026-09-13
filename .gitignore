@@ -52,6 +52,11 @@ frontend/dist/
 htmlcov/
 .coverage
 
+# 评测过程产物（含真实花费流水与缓存，不入库）
+bench/_spend_ledger.json
+bench/*_cache.db
+bench/-*.txt
+
 # 参考项目（含自身 git 仓库，仅作参考，不进版本库）
 参考项目/
 

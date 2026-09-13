@@ -9,6 +9,8 @@ from app.agents.resume_analyzer import jd_to_summary
 
 class QuestionPlanner(BaseAgent):
     name = "question_planner"
+    task = "question_plan"
+    name = "question_planner"
     description = "面试题目规划"
 
     SYSTEM_PROMPT = """你是面试出题专家。基于岗位要求、候选人画像与知识库资料，规划 __TOTAL__ 道面试题。输出严格 JSON：
