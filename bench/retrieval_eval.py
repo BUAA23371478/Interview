@@ -57,7 +57,7 @@ except Exception:  # noqa: BLE001
 
 OUT_MD = Path(__file__).with_name("retrieval_eval_result.md")
 OUT_JSON = Path(__file__).with_name("retrieval_eval_raw.json")
-QUERY_CACHE = Path(__file__).with_name("_queries.json")
+QUERY_CACHE = Path(__file__).with_name("_queries_multi.json")
 
 CANDIDATES = 20      # 每路召回候选数
 K_RECALL = 5         # 主 Recall 指标
