@@ -1,17 +1,10 @@
 // API 客户端：baseURL 指向平台前缀 /app/{slug}/api
 // 身份：平台登录后 JWT 存在 localStorage 的 access_token / refresh_token
-// LLM BYOK：用户自带 API Key 存 localStorage 的 llm_api_key，随请求头发送
+// LLM Key：纯服务端托管，业务侧不接收用户自有 Key（不再支持 BYOK）
 // 本地开发：Vite 代理 /app/interview-agent/api → 后端 8002，无平台头时后端用 DEV_USER
 
 const SLUG = 'interview-agent'
 export const API_BASE = `/app/${SLUG}/api`
-
-// 用户自带 LLM Key（BYOK）——只存在浏览器本地，后端按请求读取，不落库
-export const LLM_KEY_STORAGE = 'llm_api_key'
-
-export function getLlmKey(): string {
-  return localStorage.getItem(LLM_KEY_STORAGE) || ''
-}
 
 export class ApiError extends Error {
   status: number
@@ -25,15 +18,11 @@ export class ApiError extends Error {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const accessToken = localStorage.getItem('access_token')
-  const llmKey = getLlmKey()
   const headers: Record<string, string> = {
     Accept: 'application/json',
   }
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`
-  }
-  if (llmKey) {
-    headers['X-LLM-Key'] = llmKey
   }
   const opts: RequestInit = { method, headers }
   if (body !== undefined) {
@@ -50,6 +39,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     // 平台未登录 → 跳转平台登录页
     window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
     throw new ApiError(401, '请先登录', 'UNAUTHORIZED')
+  }
+  if (res.status === 402) {
+    // 积分不足 → 跳转充值页
+    window.location.href = `/billing?reason=insufficient_credits&redirect=${encodeURIComponent(window.location.pathname)}`
+    throw new ApiError(402, '积分不足，请先充值', 'INSUFFICIENT_CREDITS')
   }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
@@ -69,10 +63,8 @@ export const api = {
   del: <T>(path: string) => request<T>('DELETE', path),
   upload: async <T>(path: string, formData: FormData): Promise<T> => {
     const accessToken = localStorage.getItem('access_token')
-    const llmKey = getLlmKey()
     const headers: Record<string, string> = {}
     if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
-    if (llmKey) headers['X-LLM-Key'] = llmKey
     let res: Response
     try {
       res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: formData })
@@ -82,6 +74,10 @@ export const api = {
     if (res.status === 401) {
       window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
       throw new ApiError(401, '请先登录', 'UNAUTHORIZED')
+    }
+    if (res.status === 402) {
+      window.location.href = `/billing?reason=insufficient_credits`
+      throw new ApiError(402, '积分不足，请先充值', 'INSUFFICIENT_CREDITS')
     }
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {

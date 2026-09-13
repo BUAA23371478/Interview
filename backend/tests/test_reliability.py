@@ -1,4 +1,4 @@
-"""可靠性回归测试：SSE 事件回放、会话乐观锁、难度状态机、向量字节序、BYOK 隔离。
+"""可靠性回归测试：SSE 事件回放、会话乐观锁、难度状态机、向量字节序、Provider key 池隔离。
 
 这些用例对应本轮优化修掉的 P0 缺陷，也是「优化前 vs 优化后」可复现的证据：
 每一条都能在旧实现上失败、在新实现上通过。
@@ -287,33 +287,33 @@ def test_fuse_dispatches_by_configured_mode():
         settings.rag_fusion_mode = old
 
 
-# ── BYOK 多租户 key 池 ────────────────────────────────────────────────
+# ── Provider key 池（服务端托管 key，不再是 BYOK 用户自带 key）────────────
 
-def test_byok_pool_isolation_and_hash():
-    """旧实现：单槽缓存 _client/_current_key，多用户并发会互相覆盖 key。
+def test_provider_key_pool_isolation_and_hash():
+    """旧实现：单槽缓存 _client/_current_key，多 provider 路由切换会互相覆盖 client。
 
-    新实现：按 key 哈希分池，互不干扰，且池内不存明文密钥。
+    新实现：按 (api_key, base_url) 哈希分池，互不干扰，池内不存明文密钥。
     """
     from app.llm import UnifiedLLMClient
 
     c = UnifiedLLMClient()
-    k1 = c._pool_key("sk-user-a", "https://api.deepseek.com/v1")
-    k2 = c._pool_key("sk-user-b", "https://api.deepseek.com/v1")
+    k1 = c._pool_key("sk-provider-a", "https://api.deepseek.com/v1")
+    k2 = c._pool_key("sk-provider-b", "https://api.deepseek.com/v1")
     assert k1 != k2
-    assert "sk-user-a" not in k1 and len(k1) == 64   # sha256 十六进制
+    assert "sk-provider-a" not in k1 and len(k1) == 64   # sha256 十六进制
 
-    # 同一 key 复用同一实例；不同 key 得到不同实例
-    a1 = c._acquire("sk-user-a", "https://api.deepseek.com/v1")
-    a2 = c._acquire("sk-user-a", "https://api.deepseek.com/v1")
-    b1 = c._acquire("sk-user-b", "https://api.deepseek.com/v1")
+    # 同一 key 复用同一 client；不同 key 得到不同 client
+    a1 = c._acquire("sk-provider-a", "https://api.deepseek.com/v1")
+    a2 = c._acquire("sk-provider-a", "https://api.deepseek.com/v1")
+    b1 = c._acquire("sk-provider-b", "https://api.deepseek.com/v1")
     assert a1 is a2 and a1 is not b1 and len(c._pool) == 2
 
 
-def test_byok_pool_lru_eviction():
+def test_provider_key_pool_lru_eviction():
     from app.llm import UnifiedLLMClient
 
     c = UnifiedLLMClient()
     c._pool_max = 3
     for i in range(5):
-        c._acquire(f"sk-{i}", "https://api.deepseek.com/v1")
+        c._acquire(f"sk-provider-{i}", "https://api.deepseek.com/v1")
     assert len(c._pool) == 3        # 超出上限按 LRU 淘汰，密钥不会无限累积

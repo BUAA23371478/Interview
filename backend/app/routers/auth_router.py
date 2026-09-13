@@ -42,14 +42,6 @@ async def get_level(user: MaooUser = Depends(require_login)) -> dict:
         return {"maoo_user_id": user.user_id, "level": u.level, "role": u.role}
 
 
-@router.post("/test-llm")
-async def test_llm(api_key: str = Body(..., embed=True)) -> dict:
-    """测试用户提供的 LLM API Key 连通性（前端模型设置用）。"""
-    if not api_key:
-        raise HTTPException(status_code=400, detail="请填写 API Key")
-    return await llm_client.test_connection(api_key=api_key)
-
-
 @router.get("/profile", response_model=ProfileData)
 async def get_profile(user: MaooUser = Depends(require_login)) -> ProfileData:
     data = await long_term.get_profile(user.user_id) or {}

@@ -1,13 +1,8 @@
 """
 统一 LLM 客户端（OpenAI 兼容）。
 
-- 支持 chat / chat_stream / chat_with_json
-- LLM key 采用「用户自带 + 服务端回退」模式：
-    1. 请求级 contextvar：前端通过 X-LLM-Key 头带用户自己的 key（BYOK）
-    2. 无用户 key 时回退服务端 settings.llm_api_key
-    3. 都没有且 debug=False（生产）→ 抛出明确提示，引导用户配置
-    4. 都没有且 debug=True（本地开发）→ 内置确定性 mock，可离线跑通
-- 指数退避重试
+Key 策略：纯服务端托管（`settings.llm_api_key` + `settings.provider_key()`）。
+业务侧不接收、不落库用户自有 Key；用户购买积分后由平台代为调用。
 """
 from __future__ import annotations
 
@@ -27,8 +22,6 @@ from app.config import settings
 from app.observability import (BudgetExceeded, assert_budget, estimate_tokens,
                                record_usage, spend_ledger)
 
-# 请求级 LLM key（BYOK）：依赖层从 X-LLM-Key 请求头注入
-llm_api_key_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_api_key_ctx", default="")
 # 请求级模型选择：由网关路由（app/gateway）按任务写入；空 = 用全局默认
 llm_model_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_model_ctx", default="")
 # 请求级「用户偏好模型」：来自 X-LLM-Model 头，作为路由的 prefer 输入。
@@ -36,12 +29,10 @@ llm_model_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_model_c
 # 导致一次请求里所有任务都退化成同一个模型（任务级路由失效）。
 llm_prefer_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_prefer_ctx", default="")
 
-_NO_KEY_ERROR = "未配置 LLM API Key：请在「个人中心 → 模型设置」填入你自己的 API Key（支持 DeepSeek / SiliconFlow 等 OpenAI 兼容服务）"
-
-
-def set_llm_key_context(api_key: Optional[str]) -> None:
-    """设置当前请求的 LLM key（由依赖层调用）。"""
-    llm_api_key_ctx.set((api_key or "").strip())
+_NO_KEY_ERROR = (
+    "服务端未配置 LLM API Key：请在部署环境配置 settings.llm_api_key"
+    " 或 settings.llm_provider_keys（按 provider 取对应 Key）"
+)
 
 
 def set_llm_model_context(model_id: Optional[str]) -> None:
@@ -267,16 +258,19 @@ class MockLLM:
 
 
 class UnifiedLLMClient:
-    """统一 LLM 客户端：请求级用户 key（BYOK）+ 服务端 key + mock 回退。
+    """统一 LLM 客户端：服务端托管 key + 多 provider 路由 + mock 回退。
 
     支持两种调用模式（由 LLM_RESPONSES_MODE 切换）：
-    - chat.completions（默认）：OpenAI 兼容，DeepSeek 的 deepseek-chat
+    - chat.completions（默认）：OpenAI 兼容，DeepSeek 的 deepseek-flash
     - responses：DeepSeek Responses API，deepseek-v4-flash
+
+    凭据模型：业务侧**不接收用户自带 key**；Key 由服务端 settings 持有，
+    按 provider 分别取（见 app.config.Settings.provider_key）。
     """
 
     def __init__(self) -> None:
-        # 按 key 分池缓存客户端：修掉「单槽缓存 + 多租户并发」导致的跨用户串号。
-        # 每个 key 独立一个 AsyncOpenAI 实例，连接可复用，且不会互相覆盖。
+        # 按 (api_key, base_url) 分池缓存客户端：修掉「单槽缓存 + 多 provider 路由」
+        # 导致的客户端串号。每个 provider 独立一个 AsyncOpenAI 实例，连接可复用。
         self._pool: "OrderedDict[str, Any]" = OrderedDict()
         self._pool_lock = asyncio.Lock()
         self._pool_max = 64
@@ -284,7 +278,7 @@ class UnifiedLLMClient:
 
     @property
     def enabled(self) -> bool:
-        """当前是否有可用 key（请求级 BYOK > 目标模型所属 provider 的托管 key）。"""
+        """当前目标模型所属 provider 是否有可用服务端 key。"""
         return bool(self._key_for_provider(self.resolve().provider))
 
     def _key_for_provider(self, provider: str) -> str:
@@ -293,11 +287,7 @@ class UnifiedLLMClient:
         关键设计：**凭据必须按 provider 解析**。
         若所有 provider 共用一把服务端 key，模型路由一旦切到另一家，
         请求就会因为 401 失败——降级链形同虚设，而且失败恰好发生在最需要它的时刻。
-        BYOK（用户自带 key）优先级最高：用户填的 key 与其选定的模型配套。
         """
-        byok = llm_api_key_ctx.get()
-        if byok:
-            return byok
         return settings.provider_key(provider)
 
     def _key_for(self, model_id: str) -> str:
@@ -389,7 +379,7 @@ class UnifiedLLMClient:
             return "responses" if settings.llm_responses_mode else "chat.completions"
 
     def stats(self) -> Dict[str, object]:
-        """运行时可观测指标：多租户 key 池规模、当前请求是否 BYOK、调用模式。"""
+        """运行时可观测指标：多 provider key 池规模、服务端 key 状态、调用模式。"""
         model_id, base_url, style = self.target()
         return {
             "mode": style,
@@ -397,7 +387,6 @@ class UnifiedLLMClient:
             "target_base_url": base_url,
             "pool_size": len(self._pool),
             "pool_max": self._pool_max,
-            "request_key": bool(llm_api_key_ctx.get()),   # true = 用户自带 key
             "server_key": bool(settings.llm_api_key),
             "max_retries": self._max_retries,
             "timeout_s": settings.llm_timeout,
@@ -434,19 +423,17 @@ class UnifiedLLMClient:
         model_id, base_url, style = self.target()
         if not self.enabled:
             return {"ok": False, "mode": style, "model": model_id,
-                    "base_url": base_url, "byok": False,
+                    "base_url": base_url,
                     "error": _NO_KEY_ERROR if not settings.test_mode else "test_mode 下走 mock"}
         t0 = time.perf_counter()
         try:
             text = await self.chat("你是连通性探针。", "只回复两个字：正常",
                                   temperature=0.0, max_tokens=16)
             return {"ok": True, "mode": style, "model": model_id, "base_url": base_url,
-                    "byok": bool(llm_api_key_ctx.get()),
                     "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
                     "reply": (text or "")[:40]}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "mode": style, "model": model_id, "base_url": base_url,
-                    "byok": bool(llm_api_key_ctx.get()),
                     "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
                     "error": f"{type(e).__name__}: {e}"}
 
@@ -643,6 +630,8 @@ class UnifiedLLMClient:
         return parse_json_response(text)
 
     async def test_connection(self, api_key: Optional[str] = None) -> Dict[str, Any]:
+        """兼容旧 API：忽略传入的 api_key（业务侧已不接收 BYOK），走服务端托管 key。"""
+        return await self.probe()
         """测试 LLM 连通性。api_key 可选：测试指定 key（前端模型设置用）。"""
         key = api_key or self._effective_key()
         if not key:

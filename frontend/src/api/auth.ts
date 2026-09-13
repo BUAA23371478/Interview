@@ -39,6 +39,8 @@ export const authApi = {
   updateProfile: (body: { tech_strengths?: string[]; radar_scores?: Record<string, number> }) =>
     api.put<ProfileData>('/auth/profile', body),
   level: () => api.get<{ maoo_user_id: number; level: string; role: string }>('/auth/level'),
-  testLlm: (apiKey: string) => api.post<{ ok: boolean; model: string; response?: string; error?: string }>('/auth/test-llm', { api_key: apiKey }),
+  credits: () => api.get<{ maoo_user_id: number; balance: number; spent?: number; yuan: number; credits_per_yuan: number; total_consumed?: number; total_granted?: number; total_recharged?: number; frozen?: number; last_topup_at?: string | null }>('/billing/balance'),
+  recharge: (body: { credits: number; order_id?: string; note?: string }) =>
+    api.post<{ ok: boolean; credits?: number; duplicate?: boolean; balance?: number; order_id?: string; yuan?: number; message?: string }>('/billing/recharge', body),
   wrongBook: () => api.get<{ ok: boolean; total: number; items: WrongBookItem[] }>('/auth/wrong-book'),
 }

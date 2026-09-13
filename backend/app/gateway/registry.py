@@ -66,7 +66,7 @@ def _base(provider: str, default: str) -> str:
 
 
 def _enabled(provider: str) -> bool:
-    """该 provider 是否有平台托管 key。无 key 时仍可 BYOK 使用，但在目录里标记为不可直接用。"""
+    """该 provider 是否有可用 key。无 key 时在目录里标记为不可直接用。"""
     from app.config import settings
     return bool(settings.provider_key(provider))
 

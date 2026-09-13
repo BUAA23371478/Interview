@@ -1,6 +1,6 @@
 # MAOO 平台后端部署镜像（前后端分离 → 后端容器）
 # 平台注入 PORT / BASE_URL / EMBEDDING_API_KEY 等环境变量
-# LLM 采用用户自带 Key（BYOK）：服务端不配 LLM_API_KEY，用户经 X-LLM-Key 头自带
+# LLM Key 走服务端托管（不再使用 BYOK 模式）：在 .env 配置 LLM_API_KEY / LLM_PROVIDER_KEYS
 FROM python:3.11-slim
 
 WORKDIR /app
