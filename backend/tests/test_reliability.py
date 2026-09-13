@@ -193,6 +193,100 @@ def test_mixed_legacy_and_new_blobs():
     np.testing.assert_allclose(mat[0], mat[1], rtol=1e-6)
 
 
+# ── 混合检索融合 ──────────────────────────────────────────────────────
+
+def _hit(cid: str, doc: str, score: float, source: str) -> dict:
+    return {"id": cid, "doc_id": doc, "content": cid, "metadata": {}, "score": score,
+            "source": source}
+
+
+def test_rrf_merges_shared_chunk_ids():
+    """同一个 chunk 被两路同时召回 → 得分相加 → 名次上升。这是融合生效的判据。"""
+    from app.rag.hybrid import reciprocal_rank_fusion
+
+    vec = [_hit("d1#0", "d1", 0.9, "vector"), _hit("d2#0", "d2", 0.8, "vector")]
+    bm25 = [_hit("d2#0", "d2", 12.0, "bm25"), _hit("d3#0", "d3", 9.0, "bm25")]
+    out = reciprocal_rank_fusion(vec, bm25)
+    assert out[0]["id"] == "d2#0"          # 双路命中者排第一
+    got = {o["id"]: o["score"] for o in out}
+    assert got["d2#0"] > got["d1#0"] and got["d2#0"] > got["d3#0"]
+
+
+def test_namespace_mismatch_degrades_fusion_to_union():
+    """修复前：向量路用 DB 主键、BM25 路用 `{doc_id}#{index}` → 得分无法相加。
+
+    融合退化为「先列完全部向量结果，再接上 BM25 结果」，
+    BM25 独有的正确文档被挤到所有向量结果之后，超出截断线。
+    修复后 id 对齐，双路命中的 chunk 立刻上升到第 1。
+    """
+    from app.rag.hybrid import reciprocal_rank_fusion
+
+    # 修复前：两路 id 处于不同命名空间，永远无法合并
+    mismatched_vec = [_hit(f"pk-{i}", f"wrong{i}", 0.9 - i * 0.01, "vector") for i in range(5)]
+    bm25 = [_hit("d1#0", "d1", 99.0, "bm25")]
+    legacy = reciprocal_rank_fusion(mismatched_vec, bm25)
+    assert [o["doc_id"] for o in legacy[:5]] == [f"wrong{i}" for i in range(5)]  # d1 被挤出
+    assert legacy[-1]["doc_id"] == "d1"
+
+    # 修复后：id 命名空间对齐，双路命中的 chunk 得分相加 → 跃居第 1
+    aligned_vec = [_hit(f"wrong{i}#0", f"wrong{i}", 0.9 - i * 0.01, "vector")
+                   for i in range(5)] + [_hit("d1#0", "d1", 0.2, "vector")]
+    fixed = reciprocal_rank_fusion(aligned_vec, bm25)
+    assert fixed[0]["doc_id"] == "d1"
+
+
+def test_score_norm_bounds_and_scale_invariance():
+    """score_norm 逐通道 min-max 归一化：量纲不同的两路不会互相压制。
+
+    向量通道分数在 0~1，BM25 分数在 0~100。若直接比较原始分数，
+    BM25 会无条件碾压；归一化后两路各自最大值为 1，权重才真正起作用。
+    """
+    from app.rag.hybrid import score_norm_fusion
+
+    vec = [_hit("a#0", "a", 0.9, "vector"), _hit("b#0", "b", 0.1, "vector")]
+    bm25 = [_hit("c#0", "c", 100.0, "bm25"), _hit("d#0", "d", 1.0, "bm25")]
+
+    sn = score_norm_fusion(vec, bm25, vector_weight=0.5, bm25_weight=0.5)
+    got = {o["id"]: o["score"] for o in sn}
+    assert got["a#0"] == 0.5 and got["c#0"] == 0.5    # 各自通道第 1 名 → 权重满分
+    assert got["b#0"] == 0.0 and got["d#0"] == 0.0    # 通道末位 → 不贡献
+    assert all(0.0 <= s <= 1.0 for s in got.values())  # 分数被约束在权重范围内
+
+
+def test_score_norm_single_item_channel_has_no_signal():
+    """通道只有 1 条结果时无区分度 → 归一化为 0，不参与排序（避免单条结果被高估）。"""
+    from app.rag.hybrid import score_norm_fusion
+
+    vec = [_hit("a#0", "a", 0.9, "vector")]
+    bm25 = [_hit("b#0", "b", 5.0, "bm25"), _hit("c#0", "c", 1.0, "bm25")]
+    got = {o["id"]: o["score"] for o in score_norm_fusion(vec, bm25)}
+    assert got["a#0"] == 0.0 and got["b#0"] == 0.4    # 只有 BM25 通道提供区分度
+
+
+def test_minmax_uniform_channel_yields_zero_signal():
+    from app.rag.hybrid import _minmax
+    assert _minmax([3.0, 3.0, 3.0]) == [0.0, 0.0, 0.0]   # 全等 → 无区分度
+    assert _minmax([0.0, 5.0, 10.0]) == [0.0, 0.5, 1.0]
+    assert _minmax([]) == []
+
+
+def test_fuse_dispatches_by_configured_mode():
+    from app.config import settings
+    from app.rag.hybrid import FUSION_RRF, FUSION_SCORE_NORM, fuse
+
+    vec = [_hit("a#0", "a", 0.9, "vector"), _hit("b#0", "b", 0.1, "vector")]
+    bm25 = [_hit("c#0", "c", 100.0, "bm25"), _hit("d#0", "d", 1.0, "bm25")]
+    old = settings.rag_fusion_mode
+    try:
+        settings.rag_fusion_mode = FUSION_RRF
+        rrf_top = fuse(vec, bm25)[0]["score"]
+        assert rrf_top < 0.05          # RRF 分数是 1/(k+rank) 量级，与权重无关
+        settings.rag_fusion_mode = FUSION_SCORE_NORM
+        assert fuse(vec, bm25)[0]["score"] >= 0.5   # 归一化后接近权重上限
+    finally:
+        settings.rag_fusion_mode = old
+
+
 # ── BYOK 多租户 key 池 ────────────────────────────────────────────────
 
 def test_byok_pool_isolation_and_hash():

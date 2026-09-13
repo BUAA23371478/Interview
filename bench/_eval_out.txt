@@ -1,0 +1,211 @@
+﻿python.exe : [32m2026-09-13 11:18:56.001[0m | [1mINFO    [0m | [36mapp.dat
+abase[0m:[36minit_db[0m:[36m67[0m - [1m鏁版嵁搴撳垵濮嬪寲瀹屾垚[0m
+所在位置 行:445 字符: 27
++ ... \Interview; & C:\Users\28476\.workbuddy\binaries\python\envs\default\ ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([32m2026-09-13...版嵁搴撳垵濮嬪寲瀹屾垚[0m 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Building prefix dict from the default dictionary ...
+Loading model from cache C:\Users\28476\AppData\Local\Temp\jieba.cache
+Loading model cost 0.506 seconds.
+Prefix dict has been built successfully.
+[32m2026-09-13 11:18:56.846[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? Agent鏍稿績姒傚康涓
+庤璁℃ā寮?(38 chunks)[0m
+[32m2026-09-13 11:18:56.867[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (6 ch
+unks)[0m
+[32m2026-09-13 11:18:56.892[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (9
+ chunks)[0m
+[32m2026-09-13 11:18:56.911[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? LangChain涓嶭a
+ngGraph娣卞害瑙ｆ瀽 (6 chunks)[0m
+[32m2026-09-13 11:18:56.948[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? Function Cal
+ling涓嶵ool Use涓撻 (14 chunks)[0m
+[32m2026-09-13 11:18:56.981[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? MCP涓庡伐鍏风敓鎬?(
+12 chunks)[0m
+[32m2026-09-13 11:18:57.001[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (6 ch
+unks)[0m
+[32m2026-09-13 11:18:57.018[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (5
+ chunks)[0m
+[32m2026-09-13 11:18:57.129[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? Agentic RAG涓
+嶨raphRAG娣卞害瑙ｆ瀽 (46 chunks)[0m
+[32m2026-09-13 11:18:57.244[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? Context Engi
+neering涓婁笅鏂囧伐绋?(48 chunks)[0m
+[32m2026-09-13 11:18:57.365[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鍏偂鏂囧畬鏁寸瓟妗堥泦
+ (50 chunks)[0m
+[32m2026-09-13 11:18:57.382[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鍏偂鏂囬搴?Data
+Whale寮€婧?(4 chunks)[0m
+[32m2026-09-13 11:18:57.397[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (3 ch
+unks)[0m
+[32m2026-09-13 11:18:57.434[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鐪熷疄闈㈢粡-缃戠粶瀹炲
+綍 (12 chunks)[0m
+[32m2026-09-13 11:18:57.452[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (6
+ chunks)[0m
+[32m2026-09-13 11:18:57.460[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (1 ch
+unks)[0m
+[32m2026-09-13 11:18:57.481[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (5
+ chunks)[0m
+[32m2026-09-13 11:18:57.490[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (1 ch
+unks)[0m
+[32m2026-09-13 11:18:57.508[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鐪熷疄闈㈢粡-鐗涘瀹炲
+綍 (5 chunks)[0m
+[32m2026-09-13 11:18:57.523[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (4
+ chunks)[0m
+[32m2026-09-13 11:18:57.660[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? Agent宸ョ▼甯堝涔
+犺矾绾垮浘 (59 chunks)[0m
+[32m2026-09-13 11:18:57.670[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (1 ch
+unks)[0m
+[32m2026-09-13 11:18:57.685[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鐪熷疄闈㈢粡-鐗涘瀹炲
+綍 (3 chunks)[0m
+[32m2026-09-13 11:18:57.701[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (4
+ chunks)[0m
+[32m2026-09-13 11:18:57.709[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (1 ch
+unks)[0m
+[32m2026-09-13 11:18:57.726[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (5
+ chunks)[0m
+[32m2026-09-13 11:18:57.743[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (3 ch
+unks)[0m
+[32m2026-09-13 11:18:57.786[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鐪熷疄闈㈢粡-缃戠粶瀹炲
+綍 (14 chunks)[0m
+[32m2026-09-13 11:18:57.804[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (5
+ chunks)[0m
+[32m2026-09-13 11:18:57.948[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 澶фā鍨嬫帹鐞嗕紭鍖栦笌
+閮ㄧ讲 (46 chunks)[0m
+[32m2026-09-13 11:18:58.069[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 妯″瀷寰皟瀹屽叏鎸囧崡
+ (52 chunks)[0m
+[32m2026-09-13 11:18:58.078[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (1 ch
+unks)[0m
+[32m2026-09-13 11:18:58.119[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鐪熷疄闈㈢粡-缃戠粶瀹炲
+綍 (13 chunks)[0m
+[32m2026-09-13 11:18:58.138[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (6
+ chunks)[0m
+[32m2026-09-13 11:18:58.151[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 绯荤粺璁捐闈㈣瘯棰?杩
+涢樁绡?(3 chunks)[0m
+[32m2026-09-13 11:18:58.166[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (3 ch
+unks)[0m
+[32m2026-09-13 11:18:58.200[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鐪熷疄闈㈢粡-缃戠粶瀹炲
+綍 (11 chunks)[0m
+[32m2026-09-13 11:18:58.218[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (5
+ chunks)[0m
+[32m2026-09-13 11:18:58.229[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (2 ch
+unks)[0m
+[32m2026-09-13 11:18:58.267[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鐪熷疄闈㈢粡-缃戠粶瀹炲
+綍 (12 chunks)[0m
+[32m2026-09-13 11:18:58.285[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (6
+ chunks)[0m
+[32m2026-09-13 11:18:58.301[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (3 ch
+unks)[0m
+[32m2026-09-13 11:18:58.343[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鐪熷疄闈㈢粡-缃戠粶瀹炲
+綍 (13 chunks)[0m
+[32m2026-09-13 11:18:58.360[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (5
+ chunks)[0m
+[32m2026-09-13 11:18:58.368[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (1 ch
+unks)[0m
+[32m2026-09-13 11:18:58.385[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (5
+ chunks)[0m
+[32m2026-09-13 11:18:58.394[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 宀椾綅瑕佹眰 (1 ch
+unks)[0m
+[32m2026-09-13 11:18:58.410[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 鐪熷疄闈㈢粡-鐗涘瀹炲
+綍 (4 chunks)[0m
+[32m2026-09-13 11:18:58.428[0m | [1mINFO    [0m | [36mapp.services.kb_serv
+ice[0m:[36mensure_seed_indexed[0m:[36m198[0m - [1mseed 宸茬储寮? 闈㈣瘯棰樹笌闈㈢粡 (5
+ chunks)[0m
+[32m2026-09-13 11:18:58.428[0m | [32m[1mSUCCESS [0m | [36mapp.services.kb
+_service[0m:[36mensure_seed_indexed[0m:[36m200[0m - [32m[1m绉嶅瓙鐭ヨ瘑搴撶储寮曞畬鎴
+愶細49 绡?[0m
+[32m2026-09-13 11:18:58.475[0m | [1mINFO    [0m | [36mapp.rag.bm25[0m:[3
+6m_load_tokens_cached[0m:[36m174[0m - [1mBM25 鍒嗚瘝缂撳瓨鍛戒腑锛堢増鏈?(573, 573)锛夛紝璺宠
+繃 jieba 鍒嗚瘝[0m
+[32m2026-09-13 11:18:58.513[0m | [1mINFO    [0m | [36mapp.rag.bm25[0m:[3
+6mrebuild[0m:[36m142[0m - [1mBM25 绱㈠紩宸查噸寤? 573 鏉?/ 鑰楁椂 82.3ms锛堢嚎绋嬫睜鎵ц锛屾湭闃诲
+浜嬩欢寰幆锛?[0m
+[32m2026-09-13 11:18:58.526[0m | [1mINFO    [0m | [36mapp.rag.vector_store
+[0m:[36m_load[0m:[36m168[0m - [1m鍚戦噺绱㈠紩宸茶杞? 573 鏉?/ 512 缁?/ exact / 1.1M
+B / 鑰楁椂 11.8ms[0m
+璇枡: 49 绡囨枃妗?/ 573 chunks (BM25 璇枡 573)
+璇勬祴闆? 591 鏉℃煡璇紙鍘绘涔夊悗锛?
+
+{
+  "single": {
+    "vector 鍗曡矾": {
+      "recall5": 0.3925549915397631,
+      "mrr": 0.2473793409072597,
+      "ndcg": 0.32090686912737104
+    },
+    "bm25 鍗曡矾": {
+      "recall5": 0.9796954314720813,
+      "mrr": 0.8641608250745306,
+      "ndcg": 0.8971448232147675
+    },
+    "hybrid锛堜慨澶嶅墠路鍛藉悕绌洪棿閿欎綅锛?: {
+      "recall5": 0.3942470389170897,
+      "mrr": 0.2516604893508447,
+      "ndcg": 0.33160968088337406
+    }
+  },
+  "best": [
+    "score_norm",
+    0.2,
+    0.8,
+    {
+      "recall5": 0.9763113367174281,
+      "mrr": 0.8437642682566541,
+      "ndcg": 0.881244595404772
+    }
+  ],
+  "current": {
+    "recall5": 0.9712351945854484,
+    "mrr": 0.8149450756049741,
+    "ndcg": 0.8595267020805899
+  }
+}
+
+缁撴灉宸插啓鍏?E:\Study\MA\Interview\bench\retrieval_eval_result.md

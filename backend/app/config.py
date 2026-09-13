@@ -135,8 +135,12 @@ class Settings(BaseSettings):
 
     # ---- RAG ----
     rag_top_k: int = 5
-    rag_vector_weight: float = 0.6
-    rag_bm25_weight: float = 0.4
+    # 融合模式：rrf = 只用名次；score_norm = 两路各自 min-max 归一化后加权求和
+    # 融合权重必须按目标语料实测确定（见 bench/retrieval_eval.py），
+    # 固定权重在「某一路明显更强」的语料上会让融合低于最优单通道。
+    rag_fusion_mode: str = "score_norm"
+    rag_vector_weight: float = 0.35
+    rag_bm25_weight: float = 0.65
     rag_rrf_k: int = 60
     rag_chunk_size: int = 800
     rag_chunk_overlap: int = 100
