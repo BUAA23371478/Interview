@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 
+from app.gateway.breaker import llm_breaker
 from app.gateway.router import current_prefer, route
 from app.llm import LLMError, llm_client, llm_model_ctx
 
@@ -48,22 +49,32 @@ class BaseAgent:
     async def _call(self, system_prompt: str, user_prompt: str, *,
                     task: str, temperature: Optional[float],
                     json_mode: bool) -> Any:
-        """按路由链调用，逐档降级。"""
+        """按路由链调用：熔断器先筛掉不可用档位，再逐档降级。"""
         plan = route(task or self._task(), prefer=current_prefer())
         if not plan.chain:
             raise LLMError("没有可用的模型（模型注册表为空）")
 
         last_err: Optional[Exception] = None
         for idx, spec in enumerate(plan.chain):
+            allowed, why = llm_breaker.allow(spec.id)
+            if not allowed:
+                # 已熔断：不再浪费一次超时等待，直接切下一档
+                logger.info("任务 {} 跳过模型 {}（熔断状态 {}）", task, spec.id, why)
+                continue
+
             token = llm_model_ctx.set(spec.id)
             try:
                 if json_mode:
-                    return await llm_client.chat_with_json(
+                    out = await llm_client.chat_with_json(
                         system_prompt, user_prompt, temperature=temperature)
-                return await llm_client.chat(
-                    system_prompt, user_prompt, temperature=temperature)
+                else:
+                    out = await llm_client.chat(
+                        system_prompt, user_prompt, temperature=temperature)
+                llm_breaker.record_success(spec.id)
+                return out
             except LLMError as e:
                 last_err = e
+                llm_breaker.record_failure(spec.id)
                 nxt = plan.chain[idx + 1].id if idx + 1 < len(plan.chain) else None
                 if nxt:
                     logger.warning("任务 {} 使用模型 {} 失败，降级到 {}：{}",
@@ -73,7 +84,7 @@ class BaseAgent:
                                  task, [m.id for m in plan.chain], e)
             finally:
                 llm_model_ctx.reset(token)
-        raise last_err or LLMError("LLM 调用失败")
+        raise last_err or LLMError("所有模型均不可用（可能全部处于熔断状态）")
 
 
 def _safe_truncate(text: str, max_len: int) -> str:

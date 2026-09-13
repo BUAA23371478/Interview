@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from app.agents.base_agent import BaseAgent
@@ -102,6 +104,78 @@ async def test_agent_releases_model_context(monkeypatch):
     assert llm_model_ctx.get() == ""
     await agent.invoke_llm("sys", "user")
     assert llm_model_ctx.get() == ""
+
+
+# ── 熔断器 ────────────────────────────────────────────────────────────
+
+def test_breaker_opens_after_threshold_and_rejects():
+    """连续失败到阈值即熔断：后续请求直接跳过，不再浪费一次超时等待。"""
+    from app.gateway.breaker import CLOSED, OPEN, CircuitBreaker
+
+    br = CircuitBreaker(failure_threshold=3, cooldown=30.0)
+    key = "m1"
+    for _ in range(3):
+        assert br.allow(key)[0] is True
+        br.record_failure(key)
+    allowed, why = br.allow(key)
+    assert allowed is False and why == OPEN
+    assert br.snapshot()[key]["status"] == OPEN
+    assert br.snapshot()[key]["rejected"] == 1
+    assert br.allow("m2")[0] is True          # 熔断按模型隔离，不误伤其他模型
+    assert br.snapshot()["m1"]["status"] != CLOSED
+
+
+def test_breaker_half_open_probe_recovers():
+    from app.gateway.breaker import CLOSED, CircuitBreaker
+
+    # 冷却时间有 1s 下限（亚秒级冷却在生产中没有意义）
+    br = CircuitBreaker(failure_threshold=1, cooldown=1.0)
+    br.record_failure("m1")
+    assert br.allow("m1")[0] is False
+    time.sleep(1.05)                            # 等过冷却期
+    allowed, why = br.allow("m1")
+    assert allowed is True and why == "half_open"
+    br.record_success("m1")
+    assert br.snapshot()["m1"]["status"] == CLOSED
+
+
+def test_breaker_half_open_failure_extends_cooldown():
+    """半开探测失败 → 冷却时间翻倍，避免恢复期被持续打爆。"""
+    from app.gateway.breaker import CircuitBreaker
+
+    br = CircuitBreaker(failure_threshold=1, cooldown=1.0, max_cooldown=8.0)
+    br.record_failure("m1")
+    first = br.snapshot()["m1"]["cooldown_s"]
+    time.sleep(1.05)
+    br.allow("m1")                              # 转入 half_open
+    br.record_failure("m1")                     # 探测失败
+    assert br.snapshot()["m1"]["cooldown_s"] == first * 2
+    assert br.snapshot()["m1"]["status"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_agent_skips_open_breaker_and_uses_fallback(monkeypatch):
+    """主模型已熔断 → 不发起调用，直接使用备用模型。"""
+    from app.gateway.breaker import llm_breaker
+
+    tried: list[str] = []
+
+    async def fake_chat(system_prompt, user_prompt, **kw):
+        from app.llm import llm_model_ctx
+        tried.append(llm_model_ctx.get())
+        return "from-fallback"
+
+    monkeypatch.setattr(llm_client, "chat", fake_chat)
+    llm_breaker.reset()
+    for _ in range(3):
+        llm_breaker.record_failure("deepseek-chat")   # 把主模型打到熔断
+
+    agent = BaseAgent()
+    agent.task = "jd_parse"                            # 链路 deepseek-chat → qwen-turbo
+    out = await agent.invoke_llm("sys", "user")
+    assert out == "from-fallback"
+    assert tried == ["qwen-turbo"]                      # 主模型一次都没被调用
+    llm_breaker.reset()
 
 
 # ── 积分计费 ──────────────────────────────────────────────────────────

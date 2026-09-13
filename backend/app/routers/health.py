@@ -6,6 +6,8 @@ from typing import Any, Dict
 from fastapi import APIRouter
 
 from app.config import settings
+from app.gateway.breaker import llm_breaker
+from app.gateway.router import TASK_POLICY
 from app.llm import llm_client
 from app.embedding import embedding_client
 from app.rag.bm25 import bm25_retriever
@@ -38,8 +40,17 @@ async def metrics() -> Dict[str, Any]:
             "bm25": bm25_retriever.stats(),
             "index_type_config": settings.rag_index_type,
             "ann_threshold": settings.rag_ann_threshold,
+            "fusion": {
+                "mode": settings.rag_fusion_mode,
+                "weights": {"vector": settings.rag_vector_weight,
+                            "bm25": settings.rag_bm25_weight},
+            },
         },
-        "embedding": embedding_client.stats(),
-        "llm": llm_client.stats(),
+        "embedding": embedding_client.stats,
+        "llm": {**llm_client.stats(), "breakers": llm_breaker.snapshot()},
+        "routing": {
+            "tasks": {t: {"primary": s.primary, "fallbacks": list(s.fallbacks)}
+                      for t, s in TASK_POLICY.items()},
+        },
         "sse": {"active_channels": len(sse_manager._connections)},  # noqa: SLF001
     }
