@@ -10,6 +10,8 @@ from app.config import settings
 from app.database import init_db
 from app.middleware import add_middleware, register_exception_handlers
 from app.observability import init_budget
+from app.queue import start_workers, stop_workers
+from app.redis_client import redis_client
 from app.routers import (auth_router, billing_router, health, interview_router,
                          kb_router, practice_router)
 from app.services.kb_service import ensure_seed_indexed
@@ -22,6 +24,10 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     # 成本护栏：在任何一个 LLM 调用发生之前就把上限挂上，
     # 否则启动阶段的索引/预审调用不受保护。
     init_budget()
+    logger.info("初始化 Redis ...")
+    await redis_client.ping()
+    logger.info("启动任务队列 workers ...")
+    await start_workers()
     logger.info("初始化知识库索引...")
     try:
         await ensure_seed_indexed()
@@ -29,7 +35,11 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
         logger.warning("知识库索引初始化失败（可稍后手动构建）: {}", e)
     logger.info("{} 服务已就绪（端口 {}，前缀 {}）",
                 settings.app_name, settings.port, settings.base_url)
-    yield
+    try:
+        yield
+    finally:
+        await stop_workers()
+        await redis_client.close()
 
 
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
@@ -46,4 +56,6 @@ app.include_router(practice_router.router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host=settings.host, port=settings.port, reload=settings.debug)
+    uvicorn.run("app.main:app", host=settings.host, port=settings.port,
+                workers=settings.uvicorn_workers if not settings.debug else 1,
+                reload=settings.debug)

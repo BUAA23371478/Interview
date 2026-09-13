@@ -156,12 +156,15 @@ class Settings(BaseSettings):
             )
         return f"sqlite+aiosqlite:///{self.sqlite_path}"
 
-    # ---- 记忆 ----
+    # ---- Redis ----
     redis_host: str = "127.0.0.1"
     redis_port: int = 6379
     redis_password: Optional[str] = None
     redis_db: int = 0
     redis_short_term_ttl: int = 86400  # 短期会话 24h
+    # Sentinel HA（生产）："10.0.0.1:26379,10.0.0.2:26379"；非空时启用
+    redis_sentinels: str = ""
+    redis_master: str = "master"
 
     # ---- RAG ----
     rag_top_k: int = 5
@@ -238,6 +241,21 @@ class Settings(BaseSettings):
     # 每个会话保留最近 N 条事件用于断线回放（Last-Event-ID），实现「先产内容后连流」不丢事件
     sse_replay_buffer: int = 256
     sse_heartbeat: int = 15               # 秒；无事件时发送 ping 保活，防反代 60s 断连
+
+    # ---- 限流（Redis Lua 滑动窗口）----
+    rate_limit_enabled: bool = True
+    rate_limit_default: int = 100         # 默认 QPS 上限
+    rate_limit_global_qps: int = 500      # 全局
+    rate_limit_user_qps: int = 20         # 每用户
+    rate_limit_ip_qps: int = 50           # 每 IP
+
+    # ---- 异步任务队列 ----
+    task_queue_max_size: int = 10000
+    task_queue_concurrency: int = 8       # worker 数
+    task_queue_enabled: bool = True
+
+    # ---- Uvicorn 多实例 ----
+    uvicorn_workers: int = 4              # 生产建议 4-8 worker × CPU 核数
 
     # ---- 会话并发控制 ----
     # 同一会话同时只允许一个请求在写（乐观锁 CAS）：冲突方拿到 409 而不是覆盖丢数据

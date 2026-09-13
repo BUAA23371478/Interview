@@ -33,12 +33,16 @@ def _build_engine():
             cursor.execute("PRAGMA busy_timeout=5000")
             cursor.close()
     else:
+        # asyncmy 池调优：面向百人并发 / 万人容量
+        # pool_size=20 是稳态连接数；max_overflow=40 允许突发；pool_recycle=3600 防 MySQL wait_timeout
         engine = create_async_engine(
             url,
-            pool_size=10,
-            max_overflow=20,
+            pool_size=20,
+            max_overflow=40,
             pool_recycle=3600,
             pool_pre_ping=True,
+            pool_timeout=30,
+            echo=False,
         )
     return engine
 
