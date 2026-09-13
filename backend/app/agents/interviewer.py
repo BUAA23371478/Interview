@@ -27,6 +27,7 @@ def _build_history_text(qa_history: List[Dict[str, Any]], last_n: int = 3) -> st
 
 class Interviewer(BaseAgent):
     name = "interviewer"
+    task = "ask_question"
     description = "面试主控：出题、追问、点评"
 
     ASK_PROMPT = """你是面试官__TITLE__，正在主持面试。现在要出第 __CUR__/__TOTAL__ 题。
@@ -109,7 +110,7 @@ __HISTORY__
         prompt = prompt.replace("__ANSWER__", _safe_truncate(str(last.get("answer", "")), 500))
         missing = (last.get("score") or {}).get("key_missing", [])
         prompt = prompt.replace("__KEY_MISSING__", _safe_truncate("；".join(missing), 300))
-        parsed = await self.invoke_llm_json(prompt, "请追问")
+        parsed = await self.invoke_llm_json(prompt, "请追问", task="followup")
         return str(parsed.get("question", "")).strip()
 
     async def comment(self, state: Dict[str, Any]) -> str:

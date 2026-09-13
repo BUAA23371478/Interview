@@ -8,6 +8,8 @@ from app.agents.base_agent import BaseAgent, _safe_truncate
 
 class JDAnalyzer(BaseAgent):
     name = "jd_analyzer"
+    task = "jd_parse"
+    name = "jd_analyzer"
     description = "解析 JD，提取技术栈与职级要求"
 
     SYSTEM_PROMPT = """你是资深技术面试官。解析岗位 JD，输出严格 JSON：

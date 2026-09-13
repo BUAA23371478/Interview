@@ -66,7 +66,10 @@ async def worker(n: int, db: Path, dim: int, queries: int) -> dict:
 
     embedding_client.embed = fake_embed  # type: ignore[assignment]
 
-    await vector_store.search("warmup", top_k=5)  # 预热
+    # 首次查询会触发索引装载（冷启动），单独计时
+    t_load = time.perf_counter()
+    await vector_store.search("warmup", top_k=5)
+    load_ms = round((time.perf_counter() - t_load) * 1000, 1)
 
     lat = []
     for _ in range(queries):
@@ -75,6 +78,7 @@ async def worker(n: int, db: Path, dim: int, queries: int) -> dict:
         lat.append((time.perf_counter() - t) * 1000)
     lat.sort()
 
+    stats = await vector_store.stats()
     await engine.dispose()
 
     return {
@@ -84,10 +88,13 @@ async def worker(n: int, db: Path, dim: int, queries: int) -> dict:
         "min_ms": round(lat[0], 1),
         "max_ms": round(lat[-1], 1),
         "write_s": round(write_s, 1),
+        "cold_load_ms": load_ms,
+        "index_kind": stats.get("index_kind"),
+        "index_memory_mb": stats.get("index_memory_mb"),
     }
 
 
-def _driver(sizes: list[int], queries: int, dim: int, out: Path) -> None:
+def _driver(sizes: list[int], queries: int, dim: int, out: Path, index_type: str) -> None:
     rows: list[dict] = []
     tmp_root = Path(tempfile.mkdtemp(prefix="ragprobe_"))
 
@@ -97,7 +104,8 @@ def _driver(sizes: list[int], queries: int, dim: int, out: Path) -> None:
             [sys.executable, str(Path(__file__)), "--worker",
              "--n", str(n), "--db", str(db), "--queries", str(queries), "--dim", str(dim)],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            env={**os.environ, "PYTHONIOENCODING": "utf-8",
+                 "RAG_INDEX_TYPE": index_type, "SQLITE_PATH": str(db)},
         )
         marker = [ln for ln in (proc.stdout or "").splitlines() if ln.startswith("__RESULT__")]
         if not marker:
@@ -106,22 +114,25 @@ def _driver(sizes: list[int], queries: int, dim: int, out: Path) -> None:
         stat = json.loads(marker[0][len("__RESULT__"):])
         rows.append(stat)
         print(f"N={stat['n']:>7,}  p50={stat['p50_ms']:>9.1f}ms  p95={stat['p95_ms']:>9.1f}ms"
-              f"  (灌数据 {stat['write_s']}s)")
+              f"  idx={stat['index_kind']:<6} mem={stat['index_memory_mb']}MB"
+              f"  冷装载={stat['cold_load_ms']}ms  (灌数据 {stat['write_s']}s)")
 
     lines = [
-        "# 规模化检索延迟实测（真实 VectorStore.search 路径）",
+        "# 规模化检索延迟实测（优化后：内存向量矩阵 / 真实 VectorStore.search 路径）",
         "",
         f"命令: `python bench/scale_probe.py --sizes {','.join(str(s) for s in sizes)}"
-        f" --queries {queries} --dim {dim}`",
+        f" --queries {queries} --dim {dim} --index {index_type}`",
         "",
-        f"环境: Python {sys.version.split()[0]}, 向量维度 {dim}, 逻辑核 {os.cpu_count()}",
+        f"环境: Python {sys.version.split()[0]}, 向量维度 {dim}, 逻辑核 {os.cpu_count()}, "
+        f"索引模式 {index_type}",
         "",
-        "| chunk 数 | P50 | P95 | 最小 | 最大 | 灌数据耗时 |",
-        "|---|---|---|---|---|---|",
+        "| chunk 数 | P50 | P95 | 最小 | 最大 | 索引类型 | 索引内存 | 冷装载 | 灌数据耗时 |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         lines.append(f"| {r['n']:,} | {r['p50_ms']:.1f}ms | {r['p95_ms']:.1f}ms | "
-                     f"{r['min_ms']:.1f}ms | {r['max_ms']:.1f}ms | {r['write_s']}s |")
+                     f"{r['min_ms']:.1f}ms | {r['max_ms']:.1f}ms | {r['index_kind']} | "
+                     f"{r['index_memory_mb']}MB | {r['cold_load_ms']}ms | {r['write_s']}s |")
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"\n结果已写入 {out}")
 
@@ -131,6 +142,8 @@ def main() -> None:
     ap.add_argument("--sizes", default=DEFAULT_SIZES)
     ap.add_argument("--queries", type=int, default=10)
     ap.add_argument("--dim", type=int, default=DIM)
+    ap.add_argument("--index", default="auto",
+                    help="auto | memory | hnsw | brute")
     ap.add_argument("--out", default="")
     ap.add_argument("--worker", action="store_true")
     ap.add_argument("--n", type=int, default=0)
@@ -144,7 +157,7 @@ def main() -> None:
 
     sizes = [int(s) for s in args.sizes.split(",") if s.strip()]
     out = Path(args.out) if args.out else Path(__file__).with_name("scale_result.md")
-    _driver(sizes, args.queries, args.dim, out)
+    _driver(sizes, args.queries, args.dim, out, args.index)
 
 
 if __name__ == "__main__":

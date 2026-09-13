@@ -8,6 +8,8 @@ from app.agents.base_agent import BaseAgent, _safe_truncate
 
 class StudyPlanner(BaseAgent):
     name = "study_planner"
+    task = "study_plan"
+    name = "study_planner"
     description = "制定个性化复习计划"
 
     SYSTEM_PROMPT = """你是学习规划师。基于候选人面试报告与长期薄弱点，制定 4 周复习计划。输出严格 JSON：

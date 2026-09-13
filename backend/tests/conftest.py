@@ -40,7 +40,8 @@ def _clean_users():
     """每个测试前清空非 seed 数据，避免配额/重复影响。"""
     import asyncio
     from app.database import SessionLocal
-    from app.models import Document, Report, Session, WrongAnswer, UserProfile, User
+    from app.models import (CreditAccount, CreditLedger, Document, Report,
+                            Session, WrongAnswer, UserProfile, User)
 
     async def _clean():
         async with SessionLocal() as session:
@@ -50,6 +51,8 @@ def _clean_users():
             await session.execute(delete(Session))
             await session.execute(delete(WrongAnswer))
             await session.execute(delete(UserProfile))
+            await session.execute(delete(CreditLedger))
+            await session.execute(delete(CreditAccount))
             await session.execute(delete(User))
             await session.commit()
 

@@ -9,7 +9,8 @@ from loguru import logger
 from app.config import settings
 from app.database import init_db
 from app.middleware import add_middleware, register_exception_handlers
-from app.routers import auth_router, health, interview_router, kb_router, practice_router
+from app.routers import (auth_router, billing_router, health, interview_router,
+                         kb_router, practice_router)
 from app.services.kb_service import ensure_seed_indexed
 
 
@@ -33,6 +34,7 @@ register_exception_handlers(app)
 app.include_router(health.router)
 app.include_router(auth_router.router)
 app.include_router(kb_router.router)
+app.include_router(billing_router.router)
 app.include_router(interview_router.router)
 app.include_router(practice_router.router)
 

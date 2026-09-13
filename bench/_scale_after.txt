@@ -1,0 +1,5 @@
+﻿N=    500  p50=      0.2ms  p95=      0.3ms  idx=exact  mem=1.95MB  鍐疯杞?11.0ms  (鐏屾暟鎹?0.2s)
+N=  5,000  p50=      0.7ms  p95=      1.0ms  idx=exact  mem=19.53MB  鍐疯杞?113.0ms  (鐏屾暟鎹?2.3s)
+N= 20,000  p50=      1.2ms  p95=      1.3ms  idx=hnsw   mem=78.12MB  鍐疯杞?10471.9ms  (鐏屾暟鎹?8.9s)
+
+缁撴灉宸插啓鍏?bench\scale_result_after.md

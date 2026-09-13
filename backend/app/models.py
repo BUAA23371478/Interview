@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
+from sqlalchemy import (JSON, DateTime, Float, ForeignKey, Integer, LargeBinary,
+                        String, Text, UniqueConstraint)
 from sqlalchemy.dialects.mysql import LONGTEXT, MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -140,3 +141,46 @@ class Vector(Base):
     content: Mapped[str] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"), default="")
     embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     metadata_json: Mapped[str] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"), default="{}")
+
+
+# ── 积分账户（统一计费）──────────────────────────────────────────────
+class CreditAccount(Base):
+    """用户积分账户。积分是唯一的资源计量单位，token 成本按汇率折算成积分。"""
+    __tablename__ = "credit_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    maoo_user_id: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    balance: Mapped[int] = mapped_column(Integer, default=0)          # 当前可用积分
+    frozen: Mapped[int] = mapped_column(Integer, default=0)           # 进行中请求的预扣积分
+    total_granted: Mapped[int] = mapped_column(Integer, default=0)    # 累计赠送
+    total_recharged: Mapped[int] = mapped_column(Integer, default=0)  # 累计充值（占位，未接真实支付）
+    total_consumed: Mapped[int] = mapped_column(Integer, default=0)   # 累计实际消耗
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class CreditLedger(Base):
+    """积分流水（记账唯一事实来源）。
+
+    `(request_id, kind)` 唯一 —— 这就是**幂等键**：
+    客户端/网关重试同一个 request_id 时，第二次插入直接冲突，
+    不会重复扣费。预扣（pre）与结算（settle）各自一条流水，可完整复盘一笔请求。
+    """
+    __tablename__ = "credit_ledger"
+    __table_args__ = (
+        UniqueConstraint("request_id", "kind", name="uq_credit_ledger_request_kind"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    maoo_user_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    request_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), default="settle")  # pre/settle/release/recharge/grant
+    amount: Mapped[int] = mapped_column(Integer, default=0)          # 负数=扣减，正数=入账
+    balance_after: Mapped[int] = mapped_column(Integer, default=0)
+    model: Mapped[str] = mapped_column(String(64), default="")
+    task: Mapped[str] = mapped_column(String(32), default="")
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_yuan: Mapped[float] = mapped_column(Float, default=0.0)
+    note: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import Depends, Header, HTTPException
 
 from app.config import settings
-from app.llm import set_llm_key_context
+from app.llm import set_llm_key_context, set_llm_model_context
 
 
 @dataclass
@@ -65,21 +65,30 @@ async def get_current_user(
 async def require_login(
     user: Optional[MaooUser] = Depends(get_current_user),
     x_llm_key: Optional[str] = Header(default=None),
+    x_llm_model: Optional[str] = Header(default=None),
 ) -> MaooUser:
-    """登录依赖：同时把用户的 LLM API Key（BYOK）注入请求级 contextvar。"""
+    """登录依赖：注入请求级 LLM 凭据与模型偏好。
+
+    - `X-LLM-Key`：用户自带 API Key（BYOK）
+    - `X-LLM-Model`：用户首选模型；留空则由网关按任务自动路由。
+      未在注册表中的模型名会被忽略并回落任务策略（用户填错不会导致整场不可用）。
+    """
     if user is None:
         raise HTTPException(status_code=401, detail="请先登录")
     set_llm_key_context(x_llm_key)
+    set_llm_model_context(x_llm_model)
     return user
 
 
 async def require_admin(
     user: Optional[MaooUser] = Depends(get_current_user),
     x_llm_key: Optional[str] = Header(default=None),
+    x_llm_model: Optional[str] = Header(default=None),
 ) -> MaooUser:
     if user is None:
         raise HTTPException(status_code=401, detail="请先登录")
     set_llm_key_context(x_llm_key)
+    set_llm_model_context(x_llm_model)
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user

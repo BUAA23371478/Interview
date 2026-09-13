@@ -142,6 +142,8 @@ class InterviewStartResponse(BaseModel):
     jd_title: str = ""
     # 可观测性：本次请求各阶段耗时/token/成本
     trace: Optional[Dict[str, Any]] = None
+    # 计费：本次请求实际消耗与余额
+    credits: Optional[Dict[str, Any]] = None
 
 
 class InterviewAnswerResponse(BaseModel):
@@ -156,6 +158,7 @@ class InterviewAnswerResponse(BaseModel):
     final_report: Optional[Dict[str, Any]] = None
     study_plan: Optional[Dict[str, Any]] = None
     trace: Optional[Dict[str, Any]] = None
+    credits: Optional[Dict[str, Any]] = None
 
 
 class ReportResponse(BaseModel):
@@ -163,6 +166,14 @@ class ReportResponse(BaseModel):
     mode: str
     final_report: Dict[str, Any]
     study_plan: Optional[Dict[str, Any]] = None
+
+
+# ── 模型与计费 ────────────────────────────────────────────────────────
+
+class RechargeRequest(BaseModel):
+    credits: int = Field(..., gt=0, description="充值积分数量")
+    order_id: str = Field(default="", description="支付渠道订单号；留空则由服务端生成（占位语义）")
+    note: str = ""
 
 
 # ── 练习 ──────────────────────────────────────────────────────────────

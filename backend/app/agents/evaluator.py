@@ -10,6 +10,7 @@ SKIP_KEYWORDS = ("不知道", "不清楚", "不会", "跳过", "pass", "不懂",
 
 class Evaluator(BaseAgent):
     name = "evaluator"
+    task = "score"
     description = "答案评分与面试报告"
 
     SINGLE_SCORE_PROMPT = """你是面试官，为候选人的回答评分。输出严格 JSON：
@@ -83,7 +84,7 @@ class Evaluator(BaseAgent):
                 f"得分: {r.get('score', {})}"
             )
         prompt = self.REPORT_PROMPT.replace("__QA_RECORDS__", "\n".join(qa_text)[:8000] or "（无记录）")
-        parsed = await self.invoke_llm_json(prompt, "请生成报告", temperature=0.3)
+        parsed = await self.invoke_llm_json(prompt, "请生成报告", temperature=0.3, task="report")
         parsed.setdefault("overall_score", 0)
         parsed.setdefault("strengths", [])
         parsed.setdefault("weaknesses", [])

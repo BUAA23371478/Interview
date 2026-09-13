@@ -153,7 +153,9 @@ class Settings(BaseSettings):
     rag_hnsw_m: int = 32                  # HNSW 每节点邻居数
     rag_hnsw_ef_construction: int = 200
     rag_hnsw_ef_search: int = 64
-    rag_ann_threshold: int = 20000        # auto 模式下超过该规模自动用 HNSW
+    rag_ann_threshold: int = 200_000       # auto 模式下超过该规模自动用 HNSW
+                                           # 依据实测：10 万 chunk 精确检索 P50 仅 11.5ms，
+                                           # HNSW 冷启动构建反需 105s —— 阈值远高于 10 万才划算
     rag_index_auto_reload: bool = True    # 索引变更后自动重载
     rag_index_reload_interval: int = 5    # 秒；检查索引版本
 
@@ -161,6 +163,12 @@ class Settings(BaseSettings):
     embedding_cache_size: int = 2048      # 查询向量 LRU 缓存条数
     embedding_cache_ttl: int = 3600       # 秒
     embedding_cooldown: int = 60          # 失败后冷却秒数（冷却期内走降级路径，之后自动恢复）
+
+    # ---- 积分计费 ----
+    # 1 元 = CREDITS_PER_YUAN 积分（汇率在 gateway/credits.py 中固定）
+    credit_enforce: bool = True           # 为 False 时只记录不拦截（本地调试用）
+    default_credit_grant: int = 10_000    # 新用户初始赠送积分（≈10 元额度）
+    credit_recharge_enabled: bool = False # 充值走占位通道，未接真实支付前保持关闭
 
     # ---- SSE 事件流可靠性 ----
     # 每个会话保留最近 N 条事件用于断线回放（Last-Event-ID），实现「先产内容后连流」不丢事件

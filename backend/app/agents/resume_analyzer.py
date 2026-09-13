@@ -26,6 +26,8 @@ def jd_to_summary(jd: Dict[str, Any]) -> str:
 
 class ResumeAnalyzer(BaseAgent):
     name = "resume_analyzer"
+    task = "resume_parse"
+    name = "resume_analyzer"
     description = "简历匹配分析"
 
     SYSTEM_PROMPT = """你是资深技术面试官，结合岗位要求分析候选人简历匹配度。输出严格 JSON：

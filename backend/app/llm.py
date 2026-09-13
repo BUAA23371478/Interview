@@ -27,6 +27,12 @@ from app.observability import record_usage
 
 # 请求级 LLM key（BYOK）：依赖层从 X-LLM-Key 请求头注入
 llm_api_key_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_api_key_ctx", default="")
+# 请求级模型选择：由网关路由（app/gateway）按任务写入；空 = 用全局默认
+llm_model_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_model_ctx", default="")
+# 请求级「用户偏好模型」：来自 X-LLM-Model 头，作为路由的 prefer 输入。
+# 必须与 llm_model_ctx 分开：否则路由写入的实际模型会被下一轮当成用户偏好，
+# 导致一次请求里所有任务都退化成同一个模型（任务级路由失效）。
+llm_prefer_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_prefer_ctx", default="")
 
 _NO_KEY_ERROR = "未配置 LLM API Key：请在「个人中心 → 模型设置」填入你自己的 API Key（支持 DeepSeek / SiliconFlow 等 OpenAI 兼容服务）"
 
@@ -34,6 +40,11 @@ _NO_KEY_ERROR = "未配置 LLM API Key：请在「个人中心 → 模型设置�
 def set_llm_key_context(api_key: Optional[str]) -> None:
     """设置当前请求的 LLM key（由依赖层调用）。"""
     llm_api_key_ctx.set((api_key or "").strip())
+
+
+def set_llm_model_context(model_id: Optional[str]) -> None:
+    """设置当前请求的**用户偏好模型**（由依赖层从 X-LLM-Model 头调用）。"""
+    llm_prefer_ctx.set((model_id or "").strip())
 
 
 class LLMError(Exception):
@@ -268,20 +279,41 @@ class UnifiedLLMClient:
 
     def _get_client(self) -> Any:
         """chat.completions 模式客户端（按当前请求的 key 取）。"""
-        return self._acquire(self._effective_key(), settings.llm_base_url)
+        return self._acquire(self._effective_key(), self.target()[1])
 
     def _get_responses_client(self) -> Any:
         """Responses API 模式客户端（按当前请求的 key 取）。"""
-        return self._acquire(self._effective_key(), settings.llm_responses_base_url)
+        return self._acquire(self._effective_key(), self.target()[1])
+
+    def target(self) -> "tuple[str, str, str]":
+        """当前请求的目标 (model_id, base_url, api_style)。
+
+        优先级：请求级模型（网关路由 / 用户模型设置）> 全局配置。
+        没有它，多模型只是「配置项」；有了它，同一次面试里不同环节
+        才能真正使用不同档位的模型。
+        """
+        from app.gateway.registry import get_model
+        spec = get_model(llm_model_ctx.get())
+        if spec is not None:
+            return spec.id, spec.base_url, spec.api_style
+        if settings.llm_responses_mode:
+            return settings.llm_responses_model, settings.llm_responses_base_url, "responses"
+        return settings.llm_model, settings.llm_base_url, "chat"
 
     @property
     def _mode_label(self) -> str:
-        return "responses" if settings.llm_responses_mode else "chat.completions"
+        try:
+            return self.target()[2]
+        except Exception:  # noqa: BLE001
+            return "responses" if settings.llm_responses_mode else "chat.completions"
 
     def stats(self) -> Dict[str, object]:
         """运行时可观测指标：多租户 key 池规模、当前请求是否 BYOK、调用模式。"""
+        model_id, base_url, style = self.target()
         return {
-            "mode": self._mode_label,
+            "mode": style,
+            "target_model": model_id,
+            "target_base_url": base_url,
             "pool_size": len(self._pool),
             "pool_max": self._pool_max,
             "request_key": bool(llm_api_key_ctx.get()),   # true = 用户自带 key
@@ -300,12 +332,13 @@ class UnifiedLLMClient:
             # 生产/本地：无 key 一律报错，引导用户配置（不降级 mock）
             raise LLMError(_NO_KEY_ERROR)
         temperature = temperature if temperature is not None else settings.llm_temperature
+        model_id, _base_url, style = self.target()
         last_err: Optional[Exception] = None
         for attempt in range(self._max_retries):
             try:
-                if settings.llm_responses_mode:
+                if style == "responses":
                     resp = await self._get_responses_client().responses.create(
-                        model=settings.llm_responses_model,
+                        model=model_id,
                         instructions=system_prompt,
                         input=user_prompt,
                         temperature=temperature,
@@ -313,13 +346,13 @@ class UnifiedLLMClient:
                     )
                     usage = getattr(resp, "usage", None)
                     record_usage(
-                        settings.llm_responses_model,
+                        model_id,
                         int(getattr(usage, "input_tokens", 0) or 0),
                         int(getattr(usage, "output_tokens", 0) or 0),
                     )
                     return getattr(resp, "output_text", "") or ""
                 resp = await self._get_client().chat.completions.create(
-                    model=settings.llm_model,
+                    model=model_id,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
@@ -329,7 +362,7 @@ class UnifiedLLMClient:
                 )
                 usage = getattr(resp, "usage", None)
                 record_usage(
-                    settings.llm_model,
+                    model_id,
                     int(getattr(usage, "prompt_tokens", 0) or 0),
                     int(getattr(usage, "completion_tokens", 0) or 0),
                 )
@@ -357,10 +390,11 @@ class UnifiedLLMClient:
                 return
             raise LLMError(_NO_KEY_ERROR)
         temperature = temperature if temperature is not None else settings.llm_temperature
+        model_id, _base_url, style = self.target()
         try:
-            if settings.llm_responses_mode:
+            if style == "responses":
                 stream = await self._get_responses_client().responses.create(
-                    model=settings.llm_responses_model,
+                    model=model_id,
                     instructions=system_prompt,
                     input=user_prompt,
                     temperature=temperature,
@@ -375,12 +409,12 @@ class UnifiedLLMClient:
                             yield delta
                     elif etype == "response.completed":
                         usage = getattr(getattr(event, "response", None), "usage", None)
-                        record_usage(settings.llm_responses_model,
+                        record_usage(model_id,
                                      int(getattr(usage, "input_tokens", 0) or 0),
                                      int(getattr(usage, "output_tokens", 0) or 0))
                 return
             create_kwargs = {
-                "model": settings.llm_model,
+                "model": model_id,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -405,7 +439,7 @@ class UnifiedLLMClient:
                 if delta:
                     yield delta
             if last_usage is not None:
-                record_usage(settings.llm_model,
+                record_usage(model_id,
                              int(getattr(last_usage, "prompt_tokens", 0) or 0),
                              int(getattr(last_usage, "completion_tokens", 0) or 0))
         except Exception as e:  # noqa: BLE001

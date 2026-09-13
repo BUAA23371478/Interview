@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -152,24 +153,15 @@ class VectorStore:
         self._norms[self._norms == 0] = 1.0
 
         # 预归一化矩阵：余弦 = 点积 / ‖q‖
+        # 注意：_version 必须在 ANN 之前赋值 —— 索引落盘文件名依赖它做失效判断
+        self._version = (len(rows), max(r[0] for r in rows))
         self._ann, self._ann_kind = None, "exact"
         n = self._matrix.shape[0]
         want_ann = settings.rag_index_type == "hnsw" or (
             settings.rag_index_type == "auto" and n >= settings.rag_ann_threshold)
         if want_ann:
-            try:
-                import faiss
-                index = faiss.IndexHNSWFlat(dim, settings.rag_hnsw_m, faiss.METRIC_INNER_PRODUCT)
-                index.hnsw.efConstruction = settings.rag_hnsw_ef_construction
-                index.hnsw.efSearch = settings.rag_hnsw_ef_search
-                normed = np.ascontiguousarray(self._matrix / self._norms[:, None], dtype=np.float32)
-                index.add(normed)
-                self._ann, self._ann_kind = index, "hnsw"
-            except Exception as e:  # noqa: BLE001
-                logger.warning("HNSW 索引构建失败，回退精确检索：{}", e)
-                self._ann, self._ann_kind = None, "exact"
+            self._build_or_load_ann(dim, n)
 
-        self._version = (len(rows), max(r[0] for r in rows))
         self._dirty = False
         self._checked_at = time.time()
         self._build_ms = round((time.perf_counter() - t0) * 1000, 1)
@@ -184,6 +176,47 @@ class VectorStore:
     async def reload(self) -> None:
         async with self._lock:
             await self._load()
+
+    # ── ANN 索引：构建 / 持久化 ──────────────────────────────────────
+    def _ann_path(self, dim: int, n: int, max_id: int) -> Path:
+        """索引文件名带上规模与最大 id —— 数据变了文件名就变，天然失效，不会读到脏索引。"""
+        return settings.vector_index_dir / f"hnsw_d{dim}_n{n}_v{max_id}.faiss"
+
+    def _build_or_load_ann(self, dim: int, n: int) -> None:
+        """构建 HNSW 索引；若磁盘已有匹配快照则直接加载。
+
+        为什么必须持久化：10 万 chunk 的 HNSW（M=32, efConstruction=200）
+        实测构建需要 **105 秒**（见 bench/scale_result_100k_hnsw.md）。
+        每次进程冷启动重建等于不可用；落盘后冷启动只受加载带宽限制（毫秒级）。
+        """
+        try:
+            import faiss
+        except Exception as e:  # noqa: BLE001
+            logger.warning("faiss 不可用，回退精确检索：{}", e)
+            self._ann, self._ann_kind = None, "exact"
+            return
+        try:
+            path = self._ann_path(dim, n, self._version[1])
+            if path.exists():
+                self._ann = faiss.read_index(str(path))
+                self._ann.hnsw.efSearch = settings.rag_hnsw_ef_search
+                self._ann_kind = "hnsw(disk)"
+                logger.info("HNSW 索引从磁盘加载: {}（{} 条）", path.name, n)
+                return
+            index = faiss.IndexHNSWFlat(dim, settings.rag_hnsw_m, faiss.METRIC_INNER_PRODUCT)
+            index.hnsw.efConstruction = settings.rag_hnsw_ef_construction
+            index.hnsw.efSearch = settings.rag_hnsw_ef_search
+            normed = np.ascontiguousarray(self._matrix / self._norms[:, None], dtype=np.float32)
+            index.add(normed)
+            self._ann, self._ann_kind = index, "hnsw"
+            try:
+                faiss.write_index(index, str(path))
+                logger.info("HNSW 索引已构建并落盘: {}（{} 条）", path.name, n)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("HNSW 索引落盘失败（不影响本次检索）: {}", e)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("HNSW 索引构建失败，回退精确检索：{}", e)
+            self._ann, self._ann_kind = None, "exact"
 
     # ── 检索 ────────────────────────────────────────────────────────
     def _mask(self, filter_meta: Dict[str, Any]) -> Optional[np.ndarray]:
