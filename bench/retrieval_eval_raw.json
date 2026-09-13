@@ -1,0 +1,119 @@
+{
+ "variants": {
+  "vector": {
+   "recall1": 0.6230769230769231,
+   "recall5": 0.8807692307692307,
+   "mrr": 0.7342185592185592,
+   "ndcg": 0.7825190475817455
+  },
+  "bm25": {
+   "recall1": 0.5923076923076923,
+   "recall5": 0.8423076923076923,
+   "mrr": 0.6940827228327229,
+   "ndcg": 0.7464926575469567
+  },
+  "rrf": {
+   "recall1": 0.6423076923076924,
+   "recall5": 0.8730769230769231,
+   "mrr": 0.7456547619047619,
+   "ndcg": 0.7941252065350137
+  },
+  "score_norm": {
+   "recall1": 0.6653846153846154,
+   "recall5": 0.8807692307692307,
+   "mrr": 0.7637591575091575,
+   "ndcg": 0.8132207222315011
+  },
+  "score_norm+rerank": {
+   "recall1": 0.7769230769230769,
+   "recall5": 0.9461538461538461,
+   "mrr": 0.8464468864468865,
+   "ndcg": 0.8725045959337068
+  },
+  "rrf+rerank": {
+   "recall1": 0.7307692307692307,
+   "recall5": 0.9038461538461539,
+   "mrr": 0.7985576923076924,
+   "ndcg": 0.8274804592232471
+  }
+ },
+ "meta": {
+  "docs": 49,
+  "queries": 260,
+  "by_type": {
+   "title": 12,
+   "section": 90,
+   "paraphrase": 146,
+   "scenario": 12
+  },
+  "index": {
+   "loaded_chunks": 573,
+   "index_dim": 1024,
+   "index_kind": "exact",
+   "index_version": [
+    573,
+    573
+   ],
+   "load_ms": 14.9,
+   "index_memory_mb": 2.24,
+   "last_query_ms": 0.0,
+   "skipped_embedding_calls": 0,
+   "dirty": false
+  },
+  "bm25": {
+   "corpus_size": 573,
+   "build_ms": 70.9,
+   "last_query_ms": 0.0,
+   "version": [
+    573,
+    573
+   ],
+   "rebuilding": false
+  },
+  "grid_top": [
+   {
+    "mode": "score_norm",
+    "vector_weight": 0.5,
+    "bm25_weight": 0.5,
+    "recall5": 0.9231,
+    "mrr": 0.7842
+   },
+   {
+    "mode": "score_norm",
+    "vector_weight": 0.65,
+    "bm25_weight": 0.35,
+    "recall5": 0.9192,
+    "mrr": 0.7836
+   },
+   {
+    "mode": "score_norm",
+    "vector_weight": 0.8,
+    "bm25_weight": 0.2,
+    "recall5": 0.9038,
+    "mrr": 0.7593
+   },
+   {
+    "mode": "rrf",
+    "vector_weight": 0.5,
+    "bm25_weight": 0.5,
+    "recall5": 0.9038,
+    "mrr": 0.7573
+   },
+   {
+    "mode": "rrf",
+    "vector_weight": 0.35,
+    "bm25_weight": 0.65,
+    "recall5": 0.8885,
+    "mrr": 0.7488
+   },
+   {
+    "mode": "rrf",
+    "vector_weight": 0.2,
+    "bm25_weight": 0.8,
+    "recall5": 0.8885,
+    "mrr": 0.7475
+   }
+  ],
+  "spent_yuan": 0.0
+ }
+}

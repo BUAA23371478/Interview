@@ -37,19 +37,41 @@ class RouteSpec:
 
 
 # 任务 → 路由策略（单一事实来源，便于 A/B 与成本复盘）
+#
+# 降级链的三条设计原则：
+#   1. **跨端点**：主备必须落在不同 base_url 上，否则单端点故障时整条链一起挂。
+#      DeepSeek V4 在三个端点都有部署（官方直连 / 阿里云聚合 / SiliconFlow），
+#      「同模型异端点」是最理想的备选——能力完全不变，只换承载方。
+#   2. **先同档再降档**：先试同档位模型，再试弱档位；绝不在中途改变输出格式约定。
+#   3. **只用实测可用的模型**：注册表里的 verified=True 项均经 bench/probe_models.py
+#      真实调用验证；聚合端点目录里大量未开通的 id 已在 KNOWN_UNACTIVATED 中排除。
 TASK_POLICY: Dict[str, RouteSpec] = {
-    "jd_parse":       RouteSpec("deepseek-chat", ("qwen-turbo",), "结构化抽取，无需强模型"),
-    "resume_parse":   RouteSpec("deepseek-chat", ("qwen-turbo",), "结构化抽取，无需强模型"),
-    "question_plan":  RouteSpec("deepseek-chat", ("qwen-plus",), "规划类，中等档位足够"),
-    "ask_question":   RouteSpec("deepseek-chat", ("qwen-plus",), "需要中文表达质量"),
-    "followup":       RouteSpec("deepseek-chat", ("qwen-plus",), "需要结合上下文追问"),
-    "score":          RouteSpec("deepseek-chat", ("qwen-plus",), "评分要稳定，窄任务"),
-    "report":         RouteSpec("deepseek-reasoner", ("deepseek-chat",), "长链推理，报告质量敏感"),
-    "study_plan":     RouteSpec("deepseek-chat", ("qwen-plus",), "模板化生成"),
-    "chat":           RouteSpec("deepseek-chat", ("qwen-plus",), "通用问答"),
-    "ai_precheck":    RouteSpec("qwen-turbo", ("deepseek-chat",), "极低成本即可"),
+    "jd_parse":       RouteSpec("qwen3.8-27b", ("qwen3.8-flash", "deepseek-flash"),
+                                "结构化抽取，小模型足够，三端点冗余"),
+    "resume_parse":   RouteSpec("qwen3.8-27b", ("qwen3.8-flash", "deepseek-flash"),
+                                "结构化抽取，小模型足够，三端点冗余"),
+    "question_plan":  RouteSpec("qwen3.8-flash", ("deepseek-flash", "aliyun/deepseek-v4-flash"),
+                                "规划类，中等档位足够"),
+    "ask_question":   RouteSpec("deepseek-flash", ("qwen3.8-flash", "aliyun/deepseek-v4-flash"),
+                                "需要中文表达质量与低延迟"),
+    "followup":       RouteSpec("deepseek-flash", ("qwen3.8-flash", "kimi-k3"),
+                                "需要结合上下文追问，备选强档"),
+    "score":          RouteSpec("deepseek-flash",
+                                ("aliyun/deepseek-v4-flash", "sf/deepseek-v4-flash"),
+                                "评分要稳定；备选全是同模型异端点，换承载方不换能力"),
+    "report":         RouteSpec("deepseek-v4-pro",
+                                ("aliyun/deepseek-v4-pro", "sf/deepseek-v4-pro",
+                                 "qwen3.8-max", "kimi-k3"),
+                                "长链推理，报告质量敏感；跨三家厂商四层冗余"),
+    "study_plan":     RouteSpec("qwen3.8-flash", ("deepseek-flash", "glm-5.2"),
+                                "模板化生成，低成本优先"),
+    "chat":           RouteSpec("deepseek-flash", ("qwen3.8-flash", "sf/deepseek-v4-flash"),
+                                "通用问答，跨端点冗余"),
+    "ai_precheck":    RouteSpec("qwen3.8-27b", ("glm-5.2", "qwen3.8-flash"),
+                                "极低成本即可，按单价从低到高排序"),
 }
-_DEFAULT_POLICY = RouteSpec("deepseek-chat", ("qwen-plus",), "未登记任务，走默认档位")
+_DEFAULT_POLICY = RouteSpec("deepseek-flash", ("qwen3.8-flash", "aliyun/deepseek-v4-flash"),
+                            "未登记任务，走默认档位")
 
 
 @dataclass

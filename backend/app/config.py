@@ -78,11 +78,41 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 4096
     llm_timeout: float = 60.0
     llm_json_temperature: float = 0.2
+    # 思考模式控制（DeepSeek V4 系列等默认开启思考）：
+    #   disabled = 显式关闭（默认）。实测：关闭后正文首字 364ms 且必然返回正文；
+    #              保持默认则首字 988~1688ms，且 max_tokens 偏小时正文为 0 字。
+    #   auto     = 交给模型默认（仅在确实需要长链推理的场景使用）
+    llm_thinking_mode: str = "disabled"
+    # max_tokens 低于该值时强制关闭思考——思考链会吃掉全部预算导致正文为空
+    llm_thinking_min_tokens: int = 256
     # DeepSeek Responses API 模式（deepseek-v4-flash）：true 走 responses.create
     # base_url 无 /v1 后缀（https://api.deepseek.com），model 用 deepseek-v4-flash
     llm_responses_mode: bool = False
     llm_responses_model: str = "deepseek-v4-flash"
     llm_responses_base_url: str = "https://api.deepseek.com"
+
+    # ---- 多 provider 凭据与接入点 ----
+    # 真实缺陷：若所有 provider 共用一把 key，跨 provider 降级必然 401——
+    # 「降级链」就只是纸面上的配置，一次真故障都兜不住。
+    # 这里按 provider 分别保存 key 与接入点，实现真正的多厂商路由。
+    #
+    # 环境变量用 JSON：LLM_PROVIDER_KEYS={"deepseek":"sk-...","aliyun":"sk-..."}
+    #                 LLM_PROVIDER_BASE_URLS={"aliyun":"https://xxx.maas.aliyuncs.com/compatible-mode/v1"}
+    llm_provider_keys: dict[str, str] = {}
+    llm_provider_base_urls: dict[str, str] = {}
+    llm_default_provider: str = "deepseek"
+
+    def provider_key(self, provider: str) -> str:
+        """按 provider 取服务端托管 key；未配置则回落到通用 LLM_API_KEY。"""
+        if provider:
+            k = (self.llm_provider_keys or {}).get(provider)
+            if k:
+                return k
+        return self.llm_api_key
+
+    def provider_base_url(self, provider: str, default: str) -> str:
+        """按 provider 取接入点（支持指向独享/私有化端点）。"""
+        return (self.llm_provider_base_urls or {}).get(provider) or default
 
     # ---- Embedding（OpenAI 兼容 /embeddings）----
     embedding_base_url: str = "https://api.siliconflow.cn/v1"
@@ -167,6 +197,36 @@ class Settings(BaseSettings):
     embedding_cache_size: int = 2048      # 查询向量 LRU 缓存条数
     embedding_cache_ttl: int = 3600       # 秒
     embedding_cooldown: int = 60          # 失败后冷却秒数（冷却期内走降级路径，之后自动恢复）
+    # 单次 /embeddings 请求的最大文本数。各服务商上限不同（SiliconFlow bge-m3 为 64），
+    # 超限会整批 400；因此内部必须切批而不是「一次梭哈」。
+    embedding_batch_size: int = 32
+    embedding_concurrency: int = 4        # 批次并发度（受服务商 QPS 限制，过高会 429）
+    embedding_max_retries: int = 3
+    # 向量磁盘缓存：key = sha256(model + text)。入库/评测反复 embedding 同一批文本时
+    # 命中缓存可省下绝大部分费用与时间（语料重建、A/B 复测都靠它）
+    embedding_cache_db: str = ""          # 留空 = BACKEND/data/embed_cache.db
+
+    # ---- Reranker（Cross-Encoder 精排）----
+    # 与向量召回的本质区别：双塔各自编码、只比向量距离；Cross-Encoder 把 query 与
+    # 候选拼在一起过一遍模型，能捕捉否定/条件/数字等细粒度差异，精度显著更高但更慢。
+    rerank_enabled: bool = False
+    rerank_base_url: str = "https://api.siliconflow.cn/v1"
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_api_key: str = ""
+    rerank_timeout: float = 30.0
+    rerank_candidates: int = 20           # 送入精排的候选数（召回 top_k × N）
+    rerank_batch: int = 20                # 单次精排请求的文档数上限
+    # 备用 provider 列表（JSON）：主调用失败时按顺序尝试，每条格式
+    #   {"provider": "aliyun", "base_url": "https://.../compatible-mode/v1",
+    #    "model": "qwen3.7-text-rerank"}
+    # key 默认从 LLM_PROVIDER_KEYS[provider] 取，单独覆盖时填 api_key。
+    rerank_fallbacks: str = ""
+
+    # ---- LLM 成本护栏（生产级：防止一个 bug 烧掉整月预算）----
+    # 超限后 LLM 调用被直接拒绝（不是记账后后悔），并保留完整流水可追溯。
+    llm_budget_yuan: float = 30.0         # 0 = 不限制
+    llm_budget_ledger: str = ""           # 留空 = BACKEND/data/llm_spend.json
+    llm_budget_scope: str = "global"      # global = 进程全局；tenant = 按用户（多租户隔离）
 
     # ---- 积分计费 ----
     # 1 元 = CREDITS_PER_YUAN 积分（汇率在 gateway/credits.py 中固定）

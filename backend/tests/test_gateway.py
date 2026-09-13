@@ -24,34 +24,62 @@ UID = 777
 # ── 注册表与路由 ──────────────────────────────────────────────────────
 
 def test_registry_lookup_and_prefix_match():
-    assert get_model("deepseek-chat") is not None
-    assert get_model("deepseek-chat-0324").id == "deepseek-chat"   # 前缀匹配
+    assert get_model("deepseek-flash") is not None
+    assert get_model("deepseek-flash-0324").id == "deepseek-flash"   # 前缀匹配
     assert get_model("no-such-model") is None
     assert get_model("") is None
     assert len(list_models()) >= 3
 
 
+def test_registry_ids_unique_and_remote_name_resolved():
+    """对外路由 id 全局唯一，且能映射到发给服务商的真实模型名。
+
+    为什么需要这条：同一模型在多个端点都有部署（DeepSeek V4 Pro 同时存在于
+    官方直连 / 阿里云聚合 / SiliconFlow），此时路由 id 必须区分端点，
+    而远端模型名要保持正确——两者解耦是「同模型异端点容量转移」的前提。
+    """
+    from app.gateway.registry import MODELS
+    ids = [m.id for m in MODELS]
+    assert len(ids) == len(set(ids))
+    assert all(m.model_name for m in MODELS)
+    same_family = [m for m in MODELS if "deepseek-v4-pro" in m.model_name.lower()]
+    assert len(same_family) >= 2
+    assert len({m.provider for m in same_family}) >= 2
+
+
 def test_task_routing_picks_tier_by_semantics():
-    """报告这类推理密集任务走强档，结构化抽取走便宜档 —— 这是成本优化的依据。"""
-    assert route("jd_parse").primary.id == "deepseek-chat"
-    assert route("report").primary.id == "deepseek-reasoner"
-    assert route("ai_precheck").primary.id == "qwen-turbo"
+    """报告这类推理密集任务走强档，结构化抽取走便宜档 —— 这是成本优化的依据。
+
+    断言的是**档位语义**而不是具体模型名：模型目录会随供应商调整而变，
+    但「哪类任务该花多少钱」的策略不该变。
+    """
+    from app.gateway.registry import TIER_CHEAP, TIER_STRONG
+    assert route("jd_parse").primary.tier == TIER_CHEAP
+    assert route("ai_precheck").primary.tier == TIER_CHEAP
+    assert route("report").primary.tier == TIER_STRONG
     # 未登记任务走默认策略，不会崩
     assert route("unknown-task").primary is not None
 
 
+def test_fallback_chain_crosses_providers():
+    """降级链必须跨端点：主备若落在同一 base_url 上，端点整体故障时整条链一起挂。"""
+    plan = route("report")
+    assert len(plan.chain) >= 3
+    assert len({m.base_url for m in plan.chain}) >= 3
+
+
 def test_route_user_prefer_overrides_policy():
-    plan = route("report", prefer="qwen-plus")
-    assert plan.primary.id == "qwen-plus"
+    plan = route("report", prefer="kimi-k3")
+    assert plan.primary.id == "kimi-k3"
     assert plan.overridden is True
     # 备用链仍然完整（用户覆盖只改首选，不影响兜底）
-    assert "deepseek-chat" in [m.id for m in plan.chain]
+    assert len(plan.chain) >= 2
 
 
 def test_route_invalid_prefer_ignored():
     """用户填了注册表里没有的模型名 → 忽略并回落策略，而不是整场不可用。"""
     plan = route("report", prefer="my-custom-model")
-    assert plan.primary.id == "deepseek-reasoner"
+    assert plan.primary.id == route("report").primary.id
     assert plan.overridden is False
 
 
@@ -71,11 +99,13 @@ async def test_agent_falls_back_to_next_model(monkeypatch):
 
     monkeypatch.setattr(llm_client, "chat", fake_chat)
     agent = BaseAgent()
-    agent.task = "jd_parse"          # 链路：deepseek-chat -> qwen-turbo
+    agent.task = "jd_parse"
+    expect = [m.id for m in route("jd_parse").chain]
 
     out = await agent.invoke_llm("sys", "user")
     assert out == "ok-from-fallback"
-    assert tried == ["deepseek-chat", "qwen-turbo"]
+    # 第 1 次（主模型）失败 → 切到第 2 档即成功，因此恰好试了链路的前两个
+    assert tried == expect[:2]
 
 
 @pytest.mark.asyncio
@@ -167,14 +197,15 @@ async def test_agent_skips_open_breaker_and_uses_fallback(monkeypatch):
 
     monkeypatch.setattr(llm_client, "chat", fake_chat)
     llm_breaker.reset()
+    chain = [m.id for m in route("jd_parse").chain]
     for _ in range(3):
-        llm_breaker.record_failure("deepseek-chat")   # 把主模型打到熔断
+        llm_breaker.record_failure(chain[0])          # 把主模型打到熔断
 
     agent = BaseAgent()
-    agent.task = "jd_parse"                            # 链路 deepseek-chat → qwen-turbo
+    agent.task = "jd_parse"
     out = await agent.invoke_llm("sys", "user")
     assert out == "from-fallback"
-    assert tried == ["qwen-turbo"]                      # 主模型一次都没被调用
+    assert tried == chain[1:2]                         # 主模型被跳过；第 2 档一调即成功
     llm_breaker.reset()
 
 

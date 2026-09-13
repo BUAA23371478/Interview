@@ -1,0 +1,555 @@
+{
+ "availability": {
+  "deepseek": [
+   {
+    "model": "deepseek-flash",
+    "ok": true,
+    "latency_ms": 1560.0,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 9,
+     "total_tokens": 10,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_cache_hit_tokens": 0,
+     "prompt_cache_miss_tokens": 9
+    }
+   },
+   {
+    "model": "deepseek-v4-pro",
+    "ok": true,
+    "latency_ms": 608.6,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 9,
+     "total_tokens": 10,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_cache_hit_tokens": 0,
+     "prompt_cache_miss_tokens": 9
+    }
+   }
+  ],
+  "aliyun": [
+   {
+    "model": "deepseek-v4-flash",
+    "ok": true,
+    "latency_ms": 903.4,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 9,
+     "total_tokens": 10,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     }
+    }
+   },
+   {
+    "model": "deepseek-v4-pro",
+    "ok": true,
+    "latency_ms": 930.6,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 9,
+     "total_tokens": 10,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     }
+    }
+   },
+   {
+    "model": "vanchin/deepseek-v4-pro",
+    "ok": false,
+    "kind": "not_activated",
+    "latency_ms": 589.2,
+    "error": "Error code: 400 - {'error': {'message': 'The product is not activated, please confirm that you have activated products and try again after activation.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_pa"
+   },
+   {
+    "model": "vanchin/deepseek-v3.2-think",
+    "ok": false,
+    "kind": "not_activated",
+    "latency_ms": 712.7,
+    "error": "Error code: 400 - {'error': {'message': 'The product is not activated, please confirm that you have activated products and try again after activation.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_pa"
+   },
+   {
+    "model": "qwen3.8-flash",
+    "ok": true,
+    "latency_ms": 498.3,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 30,
+     "total_tokens": 31,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": 30
+     }
+    }
+   },
+   {
+    "model": "qwen3.8-max",
+    "ok": true,
+    "latency_ms": 380.3,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 17,
+     "total_tokens": 18,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": 17
+     }
+    }
+   },
+   {
+    "model": "qwen3.8-max-0902",
+    "ok": true,
+    "latency_ms": 423.0,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 17,
+     "total_tokens": 18,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": 17
+     }
+    }
+   },
+   {
+    "model": "qwen3.8-27b",
+    "ok": true,
+    "latency_ms": 220.1,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 2,
+     "prompt_tokens": 17,
+     "total_tokens": 19,
+     "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": null,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": 17
+     }
+    }
+   },
+   {
+    "model": "qwen3.7-plus",
+    "ok": true,
+    "latency_ms": 1075.1,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 17,
+     "total_tokens": 18,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": 17
+     }
+    }
+   },
+   {
+    "model": "qwen3.7-flash",
+    "ok": true,
+    "latency_ms": 380.2,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 17,
+     "total_tokens": 18,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": 17
+     }
+    }
+   },
+   {
+    "model": "qwen3.7-max",
+    "ok": true,
+    "latency_ms": 967.4,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 17,
+     "total_tokens": 18,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     }
+    }
+   },
+   {
+    "model": "kimi-k3",
+    "ok": true,
+    "latency_ms": 917.5,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 7,
+     "prompt_tokens": 23,
+     "total_tokens": 30,
+     "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 0,
+      "rejected_prediction_tokens": null,
+      "text_tokens": 7
+     },
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": 23
+     }
+    }
+   },
+   {
+    "model": "kimi-k2.6",
+    "ok": true,
+    "latency_ms": 513.0,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 2,
+     "prompt_tokens": 14,
+     "total_tokens": 16,
+     "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": null,
+      "rejected_prediction_tokens": null,
+      "text_tokens": 2
+     },
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": 14
+     }
+    }
+   },
+   {
+    "model": "ZHIPU/GLM-5.3",
+    "ok": false,
+    "kind": "not_activated",
+    "latency_ms": 465.9,
+    "error": "Error code: 400 - {'error': {'message': 'The product is not activated, please confirm that you have activated products and try again after activation.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_pa"
+   },
+   {
+    "model": "ZHIPU/GLM-5.3-Flash",
+    "ok": false,
+    "kind": "not_activated",
+    "latency_ms": 609.1,
+    "error": "Error code: 400 - {'error': {'message': 'The product is not activated, please confirm that you have activated products and try again after activation.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_pa"
+   },
+   {
+    "model": "glm-5.2",
+    "ok": true,
+    "latency_ms": 518.8,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 11,
+     "total_tokens": 12,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     }
+    }
+   },
+   {
+    "model": "glm-5",
+    "ok": true,
+    "latency_ms": 724.6,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 10,
+     "total_tokens": 11,
+     "completion_tokens_details": null,
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     }
+    }
+   },
+   {
+    "model": "MiniMax/MiniMax-M3",
+    "ok": false,
+    "kind": "not_activated",
+    "latency_ms": 189.6,
+    "error": "Error code: 400 - {'error': {'message': 'The product is not activated, please confirm that you have activated products and try again after activation.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_pa"
+   },
+   {
+    "model": "stepfun/step-3.7-flash",
+    "ok": false,
+    "kind": "not_activated",
+    "latency_ms": 659.1,
+    "error": "Error code: 400 - {'error': {'message': 'The product is not activated, please confirm that you have activated products and try again after activation.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_pa"
+   }
+  ],
+  "siliconflow": [
+   {
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "ok": true,
+    "latency_ms": 939.4,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 9,
+     "total_tokens": 10,
+     "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 0,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_cache_hit_tokens": 0,
+     "prompt_cache_miss_tokens": 9
+    }
+   },
+   {
+    "model": "deepseek-ai/DeepSeek-V4-Pro",
+    "ok": true,
+    "latency_ms": 733.2,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 9,
+     "total_tokens": 10,
+     "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 0,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_cache_hit_tokens": 0,
+     "prompt_cache_miss_tokens": 9
+    }
+   },
+   {
+    "model": "Qwen/Qwen3.8-27B",
+    "ok": true,
+    "latency_ms": 548.0,
+    "reply": "正常",
+    "reasoning_chars": 0,
+    "usage": {
+     "completion_tokens": 1,
+     "prompt_tokens": 17,
+     "total_tokens": 18,
+     "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 0,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_cache_hit_tokens": 0,
+     "prompt_cache_miss_tokens": 17
+    }
+   },
+   {
+    "model": "zai-org/GLM-5.3",
+    "ok": true,
+    "latency_ms": 1887.6,
+    "reply": "正常",
+    "reasoning_chars": 507,
+    "usage": {
+     "completion_tokens": 117,
+     "prompt_tokens": 17,
+     "total_tokens": 134,
+     "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 116,
+      "rejected_prediction_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 0,
+      "image_tokens": null,
+      "text_tokens": null
+     },
+     "prompt_cache_hit_tokens": 0,
+     "prompt_cache_miss_tokens": 17
+    }
+   }
+  ]
+ },
+ "stream": [
+  {
+   "model": "deepseek-flash",
+   "content_chars": 69,
+   "reasoning_chars": 0,
+   "ttft_content_ms": 782.7,
+   "ttft_any_ms": null,
+   "total_ms": 1083.3,
+   "content_preview": "RAG（检索增强生成）就是让大模型在回答问题前，先去外部知识库检索相关资料，再基于检索到的内容生成答案，从而减少幻觉、提",
+   "thinking_disabled": {
+    "content_chars": 69,
+    "reasoning_chars": 0,
+    "ttft_content_ms": 782.7,
+    "ttft_any_ms": 782.7,
+    "total_ms": 1083.3,
+    "content_preview": "RAG（检索增强生成）就是让大模型在回答问题前，先去外部知识库检索相关资料，再基于检索到的内容生成答案，从而减少幻觉、提"
+   },
+   "thinking_default": {
+    "content_chars": 0,
+    "reasoning_chars": 145,
+    "ttft_content_ms": null,
+    "ttft_any_ms": 697.6,
+    "total_ms": 1371.5,
+    "content_preview": ""
+   },
+   "thinking_default_large": {
+    "content_chars": 58,
+    "reasoning_chars": 211,
+    "ttft_content_ms": 987.9,
+    "ttft_any_ms": 533.8,
+    "total_ms": 1082.6,
+    "content_preview": "RAG（检索增强生成）是一种让大模型在生成回答前先从外部知识库检索相关信息并据此作答，从而提升准确性和时效性的技术。"
+   }
+  },
+  {
+   "model": "deepseek-v4-pro",
+   "content_chars": 70,
+   "reasoning_chars": 0,
+   "ttft_content_ms": 364.0,
+   "ttft_any_ms": null,
+   "total_ms": 945.6,
+   "content_preview": "RAG（检索增强生成）是一种在生成模型作答前，先从外部知识库中检索相关信息并作为上下文注入，从而提升回答准确性、时效性与",
+   "thinking_disabled": {
+    "content_chars": 70,
+    "reasoning_chars": 0,
+    "ttft_content_ms": 364.0,
+    "ttft_any_ms": 364.0,
+    "total_ms": 945.6,
+    "content_preview": "RAG（检索增强生成）是一种在生成模型作答前，先从外部知识库中检索相关信息并作为上下文注入，从而提升回答准确性、时效性与"
+   },
+   "thinking_default": {
+    "content_chars": 0,
+    "reasoning_chars": 139,
+    "ttft_content_ms": null,
+    "ttft_any_ms": 315.8,
+    "total_ms": 1108.8,
+    "content_preview": ""
+   },
+   "thinking_default_large": {
+    "content_chars": 60,
+    "reasoning_chars": 152,
+    "ttft_content_ms": 1688.0,
+    "ttft_any_ms": 731.0,
+    "total_ms": 2027.7,
+    "content_preview": "RAG（检索增强生成）是一种先从外部知识库检索相关信息，再把检索结果作为上下文交给大语言模型生成更准确、可靠回答的技术。"
+   }
+  }
+ ],
+ "spent_yuan": 0.00288
+}

@@ -1,290 +1,457 @@
 """
-检索质量评测：Recall@5 / MRR@10 / nDCG@10，量化混合检索与 RRF 融合的实际收益。
+检索质量评测 v2（真实 bge-m3 向量 + 真实 Cross-Encoder 精排）。
 
-评测方法（known-item retrieval）
---------------------------------
-以 49 篇种子知识库文档为语料，从每篇文档的 `## / ###` 小标题抽取查询词，
-「相关文档」= 该小标题所属文档。同一标题出现在多篇文档时视为歧义并丢弃。
-查询与标注完全自动化、可复现，不依赖人工标注。
+与 v1 的本质差别
+----------------
+v1 用「哈希词袋向量」替身（当时没有 embedding key），只能验证融合机制是否生效，
+绝对数值没有意义。v2 用生产同款 bge-m3（1024 维）+ bge-reranker-v2-m3，
+结论可以直接作为线上依据。
 
-向量通道的替身
---------------
-评测环境无外网、无 embedding API Key。真实 bge-m3 无法调用，
-因此用**哈希词袋向量**（jieba 分词 → 512 维哈希 → L2 归一化）代替：
-它与真实 embedding 共享「字面越接近、向量越相似」这一核心性质，
-足以验证「双路召回 + RRF 融合」这套机制本身是否生效。
-⚠️ 绝对指标不代表生产 bge-m3 的水平，只看**同一环境下通道之间的相对差异**。
-
-对比四组
+评测设计
 --------
-1. vector  —— 仅向量通道
-2. bm25    —— 仅关键词通道
-3. hybrid  —— RRF 融合（当前实现：向量与 BM25 共用 `{doc_id}#{chunk_index}` 命名空间）
-4. hybrid-legacy —— 模拟修复前的融合：向量结果 id 用 DB 自增主键，
-   与 BM25 的 `{doc_id}#{index}` 命名空间不相交 → 同一 chunk 的两路得分无法相加，
-   RRF 退化为「先列完向量结果、再接上 BM25 结果」的并集，融合收益消失。
+四个查询类型，覆盖从「字面重合」到「纯语义」的连续谱：
 
-用法：
-  python bench/retrieval_eval.py
+| 类型 | 构造方式 | 考察点 |
+|---|---|---|
+| title      | 文档标题 | 字面通道即可命中，作为上限参照 |
+| section    | 文档小标题 | 中等难度 |
+| paraphrase | LLM 改写提问（刻意避免与标题同词） | **纯语义通道能力** |
+| scenario   | LLM 生成的真实面试场景问句 | 端到端实际使用形态 |
+
+指标（文档级 known-item retrieval）：
+  Recall@1/5、MRR@10、nDCG@10
+
+指标口径必须是**文档级去重**：一篇文档有多个分块，若不去重，
+「同一篇文档占满 top5」会被算成高召回，而实际上系统只找到了一篇文档。
+
+对照方案：
+  vector / bm25 / rrf / score_norm / score_norm+rerank / rrf+rerank
+并对两种融合模式做权重网格搜索——用数据而不是直觉定权重。
+
+成本：向量与检索结果全部走本地缓存（embed_cache.db / rerank_cache.db），
+     首次运行后重复评测不再产生外部调用费用。
+
+运行：
+    python bench/retrieval_eval.py                  # 全量
+    python bench/retrieval_eval.py --rebuild        # 强制重建向量索引
+    python bench/retrieval_eval.py --regen-queries  # 重新生成 LLM 改写查询
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
-import hashlib
 import json
 import math
-import os
 import statistics
 import sys
-import tempfile
+import time
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
-BACKEND = Path(__file__).resolve().parents[1] / "backend"
-sys.path.insert(0, str(BACKEND))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "backend"))
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:  # noqa: BLE001
+    pass
 
-_TMP = tempfile.mkdtemp(prefix="rag_eval_")
-os.environ["SQLITE_PATH"] = os.path.join(_TMP, "eval.db")
-os.environ["LLM_API_KEY"] = ""
-os.environ["EMBEDDING_API_KEY"] = ""
-os.environ["TEST_MODE"] = "1"
-os.environ["RAG_INDEX_TYPE"] = "memory"
+OUT_MD = Path(__file__).with_name("retrieval_eval_result.md")
+OUT_JSON = Path(__file__).with_name("retrieval_eval_raw.json")
+QUERY_CACHE = Path(__file__).with_name("_queries.json")
 
-VECTOR_DIM = 512
-CANDIDATES = 20          # 每个通道取 20 个候选 chunk
-K_RECALL = 5
-K_METRIC = 10
-
-
-# ── 哈希词袋向量（向量通道替身）────────────────────────────────────────
-def _tokens(text: str) -> List[str]:
-    import jieba
-    return [t.strip().lower() for t in jieba.lcut(text or "") if t.strip()]
+CANDIDATES = 20      # 每路召回候选数
+K_RECALL = 5         # 主 Recall 指标
+K_METRIC = 10        # MRR / nDCG 截断
 
 
-def hash_bow(text: str) -> List[float]:
-    import numpy as np
-    v = np.zeros(VECTOR_DIM, dtype=np.float64)
-    for t in _tokens(text):
-        h = int(hashlib.md5(t.encode("utf-8")).hexdigest()[:8], 16)
-        v[h % VECTOR_DIM] += 1.0
-    n = float(np.linalg.norm(v))
-    return (v / n).tolist() if n > 0 else v.tolist()
+# ══ 指标 ══════════════════════════════════════════════════════════════
+def recall_at(ranked_docs: Sequence[str], gold: str, k: int) -> float:
+    return 1.0 if gold in list(ranked_docs)[:k] else 0.0
 
 
-# ── 指标 ──────────────────────────────────────────────────────────────
-def _dedup_docs(results: List[Dict], k: int) -> List[str]:
-    """chunk 级结果 → 文档级有序列表（同一文档只保留最高名次）。"""
-    seen, out = set(), []
-    for r in results:
-        did = r.get("doc_id") or (r.get("metadata") or {}).get("doc_id") or ""
-        if not did or did in seen:
-            continue
-        seen.add(did)
-        out.append(did)
-        if len(out) >= k:
-            break
-    return out
-
-
-def recall_at(docs: List[str], rel: str, k: int) -> float:
-    return 1.0 if rel in docs[:k] else 0.0
-
-
-def mrr_at(docs: List[str], rel: str, k: int) -> float:
-    for i, d in enumerate(docs[:k]):
-        if d == rel:
+def mrr_at(ranked_docs: Sequence[str], gold: str, k: int) -> float:
+    for i, d in enumerate(list(ranked_docs)[:k]):
+        if d == gold:
             return 1.0 / (i + 1)
     return 0.0
 
 
-def ndcg_at(docs: List[str], rel: str, k: int) -> float:
-    """二值相关性下的 nDCG@k（理想排序 DCG = 1）。"""
-    dcg = 0.0
-    for i, d in enumerate(docs[:k]):
-        if d == rel:
-            dcg = 1.0 / math.log2(i + 2)
+def ndcg_at(ranked_docs: Sequence[str], gold: str, k: int) -> float:
+    for i, d in enumerate(list(ranked_docs)[:k]):
+        if d == gold:
+            return 1.0 / math.log2(i + 2)
+    return 0.0
+
+
+def dedup_docs(hits: Sequence[Dict[str, Any]], k: int) -> List[str]:
+    """chunk 级结果 → 文档级去重序列（保留首次出现的名次）。"""
+    seen: List[str] = []
+    for h in hits:
+        did = h.get("doc_id") or h.get("metadata", {}).get("doc_id", "")
+        if did and did not in seen:
+            seen.append(did)
+        if len(seen) >= k:
             break
-    return dcg
+    return seen
 
 
-# ── 旧实现模拟：向量路 id 与 BM25 路命名空间不相交 ──────────────────────
-def break_namespace(vec_results: List[Dict]) -> List[Dict]:
-    out = []
-    for i, r in enumerate(vec_results):
-        item = dict(r)
-        item["id"] = f"pk-{i}"     # 修复前：DB 自增主键，与 {doc_id}#{index} 不相交
-        out.append(item)
+# ══ 语料与索引 ════════════════════════════════════════════════════════
+async def ensure_real_index(rebuild: bool) -> Dict[str, Any]:
+    """确保向量索引由**真实 embedding** 构建（维度与当前模型一致）。"""
+    from sqlalchemy import delete, func, select
+
+    from app.database import SessionLocal, init_db
+    from app.embedding import blob_dim, embedding_client
+    from app.models import Vector
+    from app.rag.bm25 import bm25_retriever
+    from app.rag.vector_store import vector_store
+    from app.services.kb_service import ensure_seed_indexed
+
+    await init_db()
+    probe = await embedding_client.probe()
+    if not probe.get("ok"):
+        raise SystemExit(f"Embedding 不可用，无法进行质量评测：{probe.get('error')}")
+    dim = int(probe["dimension"])
+
+    async with SessionLocal() as s:
+        blob = (await s.execute(select(Vector.embedding).limit(1))).scalars().first()
+    existing_dim = blob_dim(blob) if blob else 0
+    if (rebuild or (existing_dim not in (0, dim))) and existing_dim:
+        async with SessionLocal() as s:
+            n = (await s.execute(select(func.count()).select_from(Vector))).scalar() or 0
+            await s.execute(delete(Vector))
+            await s.commit()
+        print(f"索引维度 {existing_dim} 与模型维度 {dim} 不一致 → 清空 {n} 条向量重建")
+
+    t0 = time.perf_counter()
+    await ensure_seed_indexed()
+    await bm25_retriever.ensure_loaded()
+    await vector_store.reload()
+    build_s = round(time.perf_counter() - t0, 2)
+
+    return {"embedding_dim": dim, "embedding_model": probe.get("model"),
+            "index": await vector_store.stats(), "bm25": bm25_retriever.stats(),
+            "build_s": build_s}
+
+
+async def load_docs() -> List[Dict[str, Any]]:
+    """载入全部已收录文档（不限种子）。
+
+    为什么不只评种子文档：真实语料是「种子 + 用户上传」的混合库，
+    只评种子会严重高估检索效果——真实使用中要在一片大得多的语料里找对文档。
+    """
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import Document
+    async with SessionLocal() as s:
+        rows = (await s.execute(
+            select(Document.id, Document.title, Document.category, Document.content_text)
+            .where(Document.status == "approved")
+            .order_by(Document.id)
+        )).all()
+    return [{"doc_id": f"doc:{r[0]}", "title": r[1] or "", "category": r[2] or "",
+             "content": r[3] or ""} for r in rows]
+
+
+# ══ 查询集构建 ════════════════════════════════════════════════════════
+def _headings(content: str, limit: int = 6) -> List[str]:
+    out: List[str] = []
+    for line in (content or "").splitlines():
+        line = line.strip()
+        if line.startswith("#"):
+            head = line.lstrip("#").strip().split("：")[0].strip()
+            if 3 <= len(head) <= 30:
+                out.append(head)
+        if len(out) >= limit:
+            break
     return out
 
 
-async def main() -> None:
-    import numpy as np
+async def _llm_queries_for_doc(doc: Dict[str, Any], n: int = 3) -> List[Dict[str, str]]:
+    """让 LLM 生成「语义型查询」：措辞刻意不与原标题/小标题重合。"""
+    from app.llm import llm_client
+    heads = _headings(doc["content"], 8)
+    excerpt = (doc["content"] or "")[:1500]
+    system = (
+        "你是技术面试官。根据给定文档，生成用户可能提出的**检索式提问**。要求：\n"
+        "1. 用自然语言口语化表达，**避免直接照抄文档标题或小标题的用词**；\n"
+        "2. 每个提问独立可查询，能明确指向这篇文档的主题；\n"
+        '3. 输出严格 JSON：{"queries": ["问题1", "问题2"]}\n'
+    )
+    user = (f"文档标题：{doc['title']}\n小标题：{'、'.join(heads)}\n"
+            f"正文节选：\n{excerpt}\n\n请生成 {n} 个提问。")
+    try:
+        data = await llm_client.chat_with_json(system, user, temperature=0.6)
+        qs = data.get("queries") or []
+        return [{"q": str(q).strip(), "gold": doc["doc_id"], "type": "paraphrase"}
+                for q in qs if 6 <= len(str(q).strip()) <= 60][:n]
+    except Exception as e:  # noqa: BLE001
+        print(f"  paraphrase 生成失败（{doc['title']}）: {type(e).__name__}: {e}")
+        return []
 
-    from app.database import SessionLocal, engine, init_db
-    from app.embedding import embedding_client
-    from app.models import Document
+
+async def _scenario_queries(docs: List[Dict[str, Any]], n: int = 12) -> List[Dict[str, str]]:
+    """生成「面试场景型」查询：模拟真实出题时交给检索的 query 形态。"""
+    from app.llm import llm_client
+    titles = [f"{d['doc_id']}｜{d['title']}（{d['category']}）" for d in docs]
+    system = (
+        "你是面试官。下面是知识库的文档清单（id｜标题（分类））。"
+        "请生成若干条「面试官考察某主题时会写下的检索关键词组合」，"
+        "例如「向量召回与关键词召回怎么配合 权重怎么定 线上效果」。"
+        '必须使用清单中真实存在的文档 id 作为 gold。输出严格 JSON：'
+        '{"items": [{"q": "查询词", "gold": "doc:12"}]}\n'
+    )
+    user = "\n".join(titles[:60]) + f"\n\n请生成 {n} 条。"
+    try:
+        data = await llm_client.chat_with_json(system, user, temperature=0.6)
+        items = data.get("items") or []
+        valid = {d["doc_id"] for d in docs}
+        return [{"q": str(it.get("q", "")).strip(), "gold": str(it.get("gold", "")),
+                 "type": "scenario"}
+                for it in items if str(it.get("gold", "")) in valid
+                and 6 <= len(str(it.get("q", "")).strip()) <= 80]
+    except Exception as e:  # noqa: BLE001
+        print(f"  scenario 生成失败: {type(e).__name__}: {e}")
+        return []
+
+
+async def build_queries(docs: List[Dict[str, Any]], regen: bool) -> List[Dict[str, str]]:
+    if QUERY_CACHE.exists() and not regen:
+        cached = json.loads(QUERY_CACHE.read_text(encoding="utf-8"))
+        # 空缓存（例如上一次因语料为 0 而生成失败）不能当有效缓存复用
+        if cached:
+            print(f"复用查询缓存 {QUERY_CACHE.name}（{len(cached)} 条）")
+            return cached
+    if not docs:
+        raise SystemExit("语料为空，无法构建评测集：请先确认库中存在 approved 文档")
+
+    from app.llm import llm_model_ctx
+    out: List[Dict[str, str]] = []
+    for d in docs:
+        if 4 <= len(d["title"]) <= 40:
+            out.append({"q": d["title"], "gold": d["doc_id"], "type": "title"})
+        for h in _headings(d["content"], 3):
+            out.append({"q": h, "gold": d["doc_id"], "type": "section"})
+
+    token = llm_model_ctx.set("deepseek-flash")
+    try:
+        for i, d in enumerate(docs):
+            out.extend(await _llm_queries_for_doc(d, 3))
+            if (i + 1) % 10 == 0:
+                print(f"  paraphrase 进度 {i + 1}/{len(docs)}")
+        out.extend(await _scenario_queries(docs, 12))
+    finally:
+        llm_model_ctx.reset(token)
+
+    by_q: Dict[str, set] = {}
+    type_of: Dict[str, str] = {}
+    for item in out:
+        by_q.setdefault(item["q"], set()).add(item["gold"])
+        type_of.setdefault(item["q"], item["type"])
+    final = [{"q": q, "gold": next(iter(g)), "type": type_of[q]}
+             for q, g in by_q.items() if len(g) == 1]
+    QUERY_CACHE.write_text(json.dumps(final, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"已生成查询集并存缓存：{len(final)} 条")
+    return final
+
+
+# ══ 检索变体 ══════════════════════════════════════════════════════════
+async def _raw_both(query: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     from app.rag.bm25 import bm25_retriever
-    from app.rag.hybrid import reciprocal_rank_fusion, score_norm_fusion
     from app.rag.vector_store import vector_store
-    from app.services.kb_service import ensure_seed_indexed
-    from sqlalchemy import select
-
-    # 用哈希词袋替换真实 embedding（必须在建索引之前）
-    async def fake_embed(text: str):
-        return hash_bow(text)
-
-    async def fake_embed_batch(texts):
-        return [hash_bow(t) for t in texts]
-
-    embedding_client.embed = fake_embed            # type: ignore[assignment]
-    embedding_client.embed_batch = fake_embed_batch  # type: ignore[assignment]
-
-    await init_db()
-    await ensure_seed_indexed()
-    # BM25 索引按需构建（与线上 hybrid.retrieve 的调用顺序保持一致）
     await bm25_retriever.ensure_loaded()
-    await vector_store.reload()
+    vec, bm = await asyncio.gather(
+        vector_store.search(query, top_k=CANDIDATES),
+        asyncio.to_thread(bm25_retriever.retrieve, query, CANDIDATES),
+    )
+    return vec, bm
 
-    # ── 构造评测集 ──
-    async with SessionLocal() as s:
-        docs = (await s.execute(
-            select(Document.id, Document.title, Document.content_text)
-            .where(Document.is_seed == 1)
-        )).all()
 
-    raw: List[Tuple[str, str]] = []
-    for did, title, content in docs:
-        rel = f"doc:{did}"
-        if title and 4 <= len(title) <= 40:
-            raw.append((title.strip(), rel))
-        for line in (content or "").splitlines():
-            line = line.strip()
-            if not line.startswith(("##", "###")):
-                continue
-            head = line.lstrip("#").strip()
-            head = head.split("：")[0].strip()
-            if 4 <= len(head) <= 30:
-                raw.append((head, rel))
+async def run_variant(name: str, query: str) -> List[Dict[str, Any]]:
+    from app.rag.hybrid import reciprocal_rank_fusion, score_norm_fusion
+    from app.rag.rerank import rerank_client
 
-    # 歧义标题（同一 query 对应多篇文档）直接丢弃
-    q2docs: Dict[str, set] = {}
-    for q, rel in raw:
-        q2docs.setdefault(q, set()).add(rel)
-    queries = [(q, next(iter(d))) for q, d in q2docs.items() if len(d) == 1]
+    vec, bm = await _raw_both(query)
+    if name == "vector":
+        return vec
+    if name == "bm25":
+        return bm
+    if name == "rrf":
+        return reciprocal_rank_fusion(vec, bm)
+    if name == "score_norm":
+        return score_norm_fusion(vec, bm, vector_weight=0.35, bm25_weight=0.65)
+    if name in ("score_norm+rerank", "rrf+rerank", "rerank_only"):
+        if name == "rrf+rerank":
+            base = reciprocal_rank_fusion(vec, bm)
+        elif name == "rerank_only":
+            base = vec + bm
+        else:
+            base = score_norm_fusion(vec, bm, vector_weight=0.35, bm25_weight=0.65)
+        ranked, applied = await rerank_client.rerank(query, base, top_k=K_METRIC)
+        if not applied and name != "rerank_only":
+            print(f"  ⚠️ 精排未应用（{name}）")
+        return ranked
+    raise ValueError(name)
 
-    row_stats = vector_store._matrix.shape[0] if vector_store._matrix is not None else 0
-    bm25_stats = bm25_retriever.stats()
-    print(f"语料: {len(docs)} 篇文档 / {row_stats} chunks "
-          f"(BM25 语料 {bm25_stats.get('corpus_size')})")
-    print(f"评测集: {len(queries)} 条查询（去歧义后）\n")
-    assert row_stats > 0, "向量索引为空，评测无意义"
-    assert (bm25_stats.get("corpus_size") or 0) > 0, "BM25 语料为空，关键词通道不可用"
 
-    # ── 先跑一遍两路召回，缓存起来供网格搜索复用 ──
-    vec_cache, bm25_cache = [], []
-    for q, _rel in queries:
-        vec_cache.append(await vector_store.search(q, top_k=CANDIDATES))
-        bm25_cache.append(await asyncio.to_thread(bm25_retriever.retrieve, q, CANDIDATES))
+# ══ 主流程 ════════════════════════════════════════════════════════════
+async def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--rebuild", action="store_true")
+    ap.add_argument("--regen-queries", action="store_true")
+    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--docs", type=int, default=40,
+                    help="抽样多少篇文档生成查询集（检索仍在全量语料上进行）")
+    ap.add_argument("--rerank", type=int, default=1, help="1=启用精排（需 RERANK_API_KEY）")
+    args = ap.parse_args()
 
-    rels = [rel for _, rel in queries]
+    from app.config import settings
+    from app.observability import init_budget, new_meter, spend_ledger
 
-    def evaluate(rank_fn) -> Dict[str, float]:
-        lists = [_dedup_docs(rank_fn(v, b), K_METRIC)
-                 for v, b in zip(vec_cache, bm25_cache)]
-        return {
-            "recall5": statistics.mean(recall_at(d, r, K_RECALL) for d, r in zip(lists, rels)),
-            "mrr": statistics.mean(mrr_at(d, r, K_METRIC) for d, r in zip(lists, rels)),
-            "ndcg": statistics.mean(ndcg_at(d, r, K_METRIC) for d, r in zip(lists, rels)),
-        }
+    settings.rerank_enabled = bool(args.rerank)
+    init_budget()
+    new_meter()
 
-    single = {
-        "vector 单路": evaluate(lambda v, b: v),
-        "bm25 单路": evaluate(lambda v, b: b),
-    }
-    # 修复前：向量路 id 与 BM25 命名空间不相交
-    single["hybrid（修复前·命名空间错位）"] = evaluate(
-        lambda v, b: reciprocal_rank_fusion(break_namespace(v), b))
+    info = await ensure_real_index(args.rebuild)
+    docs_all = await load_docs()
+    # 抽样只影响「生成哪些查询」；检索与评测仍在**全量语料**上进行，
+    # 这样质量指标反映的是「在一整片语料里找对文档」的真实难度。
+    import random as _random
+    if args.docs and len(docs_all) > args.docs:
+        docs = _random.Random(20260913).sample(docs_all, args.docs)
+    else:
+        docs = docs_all
+    print(f"语料 {len(docs_all)} 篇 / {info['index'].get('loaded_chunks')} chunks / "
+          f"{info['embedding_dim']} 维 / 索引 {info['index'].get('index_kind')} / "
+          f"构建 {info['build_s']}s")
+    print(f"查询集抽样文档 {len(docs)} 篇（检索语料仍为全量 {len(docs_all)} 篇）")
 
-    grid: List[Tuple[str, float, float, Dict[str, float]]] = []
-    for mode, fn in (("rrf", reciprocal_rank_fusion), ("score_norm", score_norm_fusion)):
-        for wv in (0.2, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8):
-            wb = round(1.0 - wv, 2)
-            kw = {"k": 60} if mode == "rrf" else {}
-            grid.append((mode, wv, wb,
-                         evaluate(lambda v, b, f=fn, a=wv, c=wb, k=kw: f(v, b, vector_weight=a, bm25_weight=c, **k))))
+    queries = await build_queries(docs, args.regen_queries)
+    if args.limit:
+        queries = queries[: args.limit]
+    by_type: Dict[str, int] = {}
+    for q in queries:
+        by_type[q["type"]] = by_type.get(q["type"], 0) + 1
+    print(f"评测集 {len(queries)} 条 → {by_type}")
 
-    best = max(grid, key=lambda x: (x[3]["mrr"], x[3]["recall5"]))
-    cur_mode, cur_vw, cur_bw = "score_norm", 0.35, 0.65
-    current = next(x[3] for x in grid
-                   if x[0] == cur_mode and abs(x[1] - cur_vw) < 1e-9)
+    variants = ["vector", "bm25", "rrf", "score_norm"]
+    if settings.rerank_enabled:
+        variants += ["score_norm+rerank", "rrf+rerank"]
 
-    lines = [
-        "# 检索质量评测（Recall@5 / MRR@10 / nDCG@10）",
+    per_variant: Dict[str, Dict[str, float]] = {}
+    per_type: Dict[str, Dict[str, Dict[str, float]]] = {}
+    raw: Dict[str, Any] = {"variants": {}}
+
+    for v in variants:
+        r1s: List[float] = []
+        r5s: List[float] = []
+        mrrs: List[float] = []
+        ndcgs: List[float] = []
+        type_acc: Dict[str, Dict[str, List[float]]] = {}
+        for q in queries:
+            hits = await run_variant(v, q["q"])
+            ranked = dedup_docs(hits, K_METRIC)
+            g = q["gold"]
+            r5 = recall_at(ranked, g, K_RECALL)
+            r1 = recall_at(ranked, g, 1)
+            mr = mrr_at(ranked, g, K_METRIC)
+            nd = ndcg_at(ranked, g, K_METRIC)
+            r1s.append(r1); r5s.append(r5); mrrs.append(mr); ndcgs.append(nd)
+            acc = type_acc.setdefault(q["type"], {"r5": [], "r1": [], "mrr": []})
+            acc["r5"].append(r5); acc["r1"].append(r1); acc["mrr"].append(mr)
+        per_variant[v] = {"recall1": statistics.mean(r1s),
+                          "recall5": statistics.mean(r5s),
+                          "mrr": statistics.mean(mrrs),
+                          "ndcg": statistics.mean(ndcgs)}
+        per_type[v] = {t: {"n": len(a["r5"]), "recall1": statistics.mean(a["r1"]),
+                           "recall5": statistics.mean(a["r5"]),
+                           "mrr": statistics.mean(a["mrr"])}
+                       for t, a in type_acc.items()}
+        m = per_variant[v]
+        print(f"  {v:<20} R@1={m['recall1']:.3f} R@5={m['recall5']:.3f} "
+              f"MRR={m['mrr']:.4f} nDCG={m['ndcg']:.4f}")
+        raw["variants"][v] = m
+
+    print("权重网格搜索中...")
+    from app.rag.hybrid import reciprocal_rank_fusion, score_norm_fusion
+    pairs: Dict[str, Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]] = {}
+    for q in queries:
+        pairs[q["q"]] = await _raw_both(q["q"])
+
+    grid: List[Dict[str, Any]] = []
+    for mode in ("score_norm", "rrf"):
+        for vw in (0.0, 0.2, 0.35, 0.5, 0.65, 0.8, 1.0):
+            bw = round(1.0 - vw, 2)
+            r5s, mrrs = [], []
+            for q in queries:
+                vec, bm = pairs[q["q"]]
+                fused = (score_norm_fusion(vec, bm, vector_weight=vw, bm25_weight=bw)
+                         if mode == "score_norm"
+                         else reciprocal_rank_fusion(vec, bm,
+                                                     vector_weight=vw, bm25_weight=bw))
+                ranked = dedup_docs(fused, K_METRIC)
+                r5s.append(recall_at(ranked, q["gold"], K_RECALL))
+                mrrs.append(mrr_at(ranked, q["gold"], K_METRIC))
+            grid.append({"mode": mode, "vector_weight": vw, "bm25_weight": bw,
+                         "recall5": round(statistics.mean(r5s), 4),
+                         "mrr": round(statistics.mean(mrrs), 4)})
+    grid.sort(key=lambda x: (x["recall5"], x["mrr"]), reverse=True)
+    for g in grid[:6]:
+        print(f"  {g['mode']:<11} vw={g['vector_weight']:<5} bw={g['bm25_weight']:<5} "
+              f"R@5={g['recall5']:.3f} MRR={g['mrr']:.4f}")
+
+    snap = spend_ledger.snapshot()
+    lines: List[str] = [
+        "# 检索质量评测 v2（真实 bge-m3 + 真实 Cross-Encoder 精排）", "",
+        f"时间：{time.strftime('%Y-%m-%d %H:%M:%S')}", "",
+        "## 环境与语料", "",
+        f"- Embedding：`{info['embedding_model']}`，{info['embedding_dim']} 维",
+        f"- Rerank：`{settings.rerank_model}`（候选 {settings.rerank_candidates}，"
+        f"本轮启用={settings.rerank_enabled}）",
+        f"- 语料：{len(docs)} 篇文档 / {info['index'].get('loaded_chunks')} chunks / "
+        f"索引类型 {info['index'].get('index_kind')}",
+        f"- 评测集：{len(queries)} 条 → {by_type}",
+        f"- 指标口径：**文档级去重**（同一文档多个分块只记一次名次），"
+        f"每路取 {CANDIDATES} 个候选",
         "",
-        "评测方式：known-item retrieval。查询取自种子文档小标题，相关文档 = 所属文档。",
-        f"语料 {len(docs)} 篇 / {row_stats} chunks；评测集 {len(queries)} 条去歧义查询；"
-        f"每通道取 {CANDIDATES} 个候选，指标在**文档级**计算。",
-        "",
-        "⚠️ 两点方法论声明（避免误读）：",
-        "1. 环境无 embedding API Key，向量通道用「哈希词袋向量」替代 bge-m3，"
-        "只保留「字面越近越相似」性质；",
-        "2. 查询由小标题构造，**天然偏向字面匹配（BM25）**。",
-        "因此本表用于比较**融合机制与权重是否合理**，不代表生产绝对水平。",
-        "",
-        "## 一、单通道 vs 融合（RRF 默认权重 0.6/0.4，修复前状态）",
-        "",
-        "| 方案 | Recall@5 | MRR@10 | nDCG@10 |",
-        "|---|---|---|---|",
+        "## 总体结果", "",
+        "| 方案 | Recall@1 | Recall@5 | MRR@10 | nDCG@10 |", "|---|---|---|---|---|",
     ]
-    for name, m in single.items():
-        lines.append(f"| {name} | {m['recall5'] * 100:.1f}% | {m['mrr']:.4f} | {m['ndcg']:.4f} |")
+    for v in variants:
+        m = per_variant[v]
+        lines.append(f"| {v} | {m['recall1'] * 100:.1f}% | {m['recall5'] * 100:.1f}% | "
+                     f"{m['mrr']:.4f} | {m['ndcg']:.4f} |")
 
-    lines += [
-        "",
-        "> 关键发现：**RRF 固定权重 0.6/0.4 的融合结果（未单列，见下表 rrf/0.6）"
-        "明显低于 BM25 单路** —— 弱通道把强通道的正确结果挤出了截断线。",
-        "> 也就是说「接了两路 + RRF」并不自动等于「更好」，权重必须实测调参。",
-        "",
-        "## 二、融合模式 × 权重网格搜索（按 MRR 降序，前 10）",
-        "",
-        "| 融合模式 | 权重(向量/BM25) | Recall@5 | MRR@10 | nDCG@10 |",
-        "|---|---|---|---|---|",
-    ]
-    for mode, wv, wb, m in sorted(grid, key=lambda x: -x[3]["mrr"])[:10]:
-        mark = " ✅ 当前默认" if (mode == cur_mode and abs(wv - cur_vw) < 1e-9) else ""
-        lines.append(f"| {mode} | {wv:.2f} / {wb:.2f} | {m['recall5'] * 100:.1f}% | "
-                     f"{m['mrr']:.4f} | {m['ndcg']:.4f}{mark} |")
+    types = ["title", "section", "paraphrase", "scenario"]
+    lines += ["", "## 分查询类型（Recall@5 / MRR）", "",
+              "| 方案 | " + " | ".join(f"{t} R@5 / MRR" for t in types) + " |",
+              "|---" * (len(types) + 1) + "|"]
+    for v in variants:
+        cells = []
+        for t in types:
+            d = per_type[v].get(t)
+            cells.append(f"{d['recall5'] * 100:.1f}% / {d['mrr']:.3f}" if d else "-")
+        lines.append(f"| {v} | " + " | ".join(cells) + " |")
 
-    rrf_default = next(x[3] for x in grid if x[0] == "rrf" and abs(x[1] - 0.6) < 1e-9)
-    lines += [
-        "",
-        "## 三、结论",
-        "",
-        f"- **命名空间对齐是 RRF 生效的前提**：修复前 "
-        f"Recall@5 {single['hybrid（修复前·命名空间错位）']['recall5'] * 100:.1f}% / "
-        f"MRR {single['hybrid（修复前·命名空间错位）']['mrr']:.4f}，"
-        f"与「仅向量单路」几乎重合 —— 说明 BM25 路的结果根本没参与排序，融合形同虚设。",
-        f"- **融合必须调参**：RRF 默认 0.6/0.4 的 MRR 为 {rrf_default['mrr']:.4f}，"
-        f"低于 BM25 单路的 {single['bm25 单路']['mrr']:.4f}；"
-        f"经网格搜索后的最优组合为 "
-        f"`{best[0]}` 权重 {best[1]:.2f}/{best[2]:.2f}，MRR {best[3]['mrr']:.4f}、"
-        f"Recall@5 {best[3]['recall5'] * 100:.1f}%。",
-        f"- **当前默认配置**：`{cur_mode}` 权重 {cur_vw:.2f}/{cur_bw:.2f}，"
-        f"MRR {current['mrr']:.4f}、Recall@5 {current['recall5'] * 100:.1f}%，"
-        f"相比修复前（{single['hybrid（修复前·命名空间错位）']['mrr']:.4f}）"
-        f"MRR 提升 {(current['mrr'] / max(single['hybrid（修复前·命名空间错位）']['mrr'], 1e-9) - 1) * 100:.1f}%。",
-        "",
-        "生产上更换 embedding 模型或语料领域后，应重跑本脚本重新确定 "
-        "`RAG_FUSION_MODE` 与两组权重，而不是沿用默认值。",
-    ]
-    out = Path(__file__).with_name("retrieval_eval_result.md")
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    lines += ["", "## 融合权重网格（前 6）", "",
+              "| 融合模式 | vector 权重 | bm25 权重 | Recall@5 | MRR@10 |",
+              "|---|---|---|---|---|"]
+    for g in grid[:6]:
+        lines.append(f"| {g['mode']} | {g['vector_weight']} | {g['bm25_weight']} | "
+                     f"{g['recall5'] * 100:.1f}% | {g['mrr']:.4f} |")
 
-    print(json.dumps({"single": single, "best": [best[0], best[1], best[2], best[3]],
-                      "current": current}, ensure_ascii=False, indent=2))
-    print(f"\n结果已写入 {out}")
-    await engine.dispose()
+    lines += ["", "## 成本", "",
+              f"- 累计外部花费：¥{snap['spent_yuan']}（上限 ¥{snap['cap_yuan']}）",
+              "- 向量与精排结果均有本地缓存，重复评测不再产生调用费用", ""]
+
+    OUT_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    raw["meta"] = {"docs": len(docs), "queries": len(queries), "by_type": by_type,
+                   "index": info["index"], "bm25": info["bm25"],
+                   "grid_top": grid[:6], "spent_yuan": snap["spent_yuan"]}
+    OUT_JSON.write_text(json.dumps(raw, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"\n报告已写入 {OUT_MD}")
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

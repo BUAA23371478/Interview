@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from loguru import logger
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select
 
 from app.config import settings
 from app.database import SessionLocal
@@ -72,6 +72,7 @@ class VectorStore:
         self._ann_kind = "none"
         self._build_ms = 0.0
         self._last_query_ms = 0.0
+        self._skipped_embedding = 0   # 因 Embedding 不可用而关闭向量通道的次数
 
     # ── 索引装载 ────────────────────────────────────────────────────
     async def _db_version(self) -> Tuple[int, int]:
@@ -298,20 +299,31 @@ class VectorStore:
     # ── 写入 ────────────────────────────────────────────────────────
     async def index_document(self, doc_id: str, chunks: List[str],
                              metadata: Dict[str, Any]) -> int:
-        """分块向量化入库，返回 chunk 数。"""
+        """分块向量化入库，返回 chunk 数。
+
+        两条硬约束：
+          1. **全量成功才落库**：任一分块拿不到真实向量就整体失败，
+             不允许写入半截索引（部分 chunk 缺失会导致召回率静默下降）；
+          2. 批量 INSERT（executemany）而非逐条 add——千级分块时相差一个数量级。
+        """
         if not chunks:
             return 0
         vectors = await embedding_client.embed_batch(chunks)
+        missing = [i for i, v in enumerate(vectors) if not v]
+        if missing:
+            raise EmbeddingUnavailable(
+                f"分块向量化失败 {len(missing)}/{len(chunks)} 条，拒绝写入不完整索引。"
+                "（Embedding 服务不可用时会这样保护索引一致性）"
+            )
+        meta_json = json.dumps(metadata, ensure_ascii=False)
+        rows = [
+            {"doc_id": doc_id, "chunk_index": i, "chunk_count": len(chunks),
+             "content": chunk, "embedding": pack_vector(vec), "metadata_json": meta_json}
+            for i, (chunk, vec) in enumerate(zip(chunks, vectors))
+        ]
         async with SessionLocal() as session:
-            for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
-                session.add(Vector(
-                    doc_id=doc_id,
-                    chunk_index=i,
-                    chunk_count=len(chunks),
-                    content=chunk,
-                    embedding=pack_vector(vec),
-                    metadata_json=json.dumps(metadata, ensure_ascii=False),
-                ))
+            for i in range(0, len(rows), 500):
+                await session.execute(insert(Vector), rows[i:i + 500])
             await session.commit()
         self.mark_dirty()
         return len(chunks)
@@ -354,6 +366,7 @@ class VectorStore:
             "index_memory_mb": round(self._matrix.nbytes / 1024 / 1024, 2)
             if self._matrix is not None else 0.0,
             "last_query_ms": self._last_query_ms,
+            "skipped_embedding_calls": self._skipped_embedding,
             "dirty": self._dirty,
         }
 

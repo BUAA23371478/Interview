@@ -17,13 +17,15 @@ import hashlib
 import json
 import random
 import re
+import time
 from collections import OrderedDict
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, NamedTuple, Optional
 
 from loguru import logger
 
 from app.config import settings
-from app.observability import record_usage
+from app.observability import (BudgetExceeded, assert_budget, estimate_tokens,
+                               record_usage, spend_ledger)
 
 # 请求级 LLM key（BYOK）：依赖层从 X-LLM-Key 请求头注入
 llm_api_key_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("llm_api_key_ctx", default="")
@@ -89,9 +91,46 @@ def retry_delay(attempt: int, exc: Exception, *, base: float = 0.5, cap: float =
     return random.uniform(0.05, ceiling) if ceiling > 0.05 else 0.05
 
 
+def usage_of(usage: Any) -> tuple:
+    """从各家不同结构的 usage 中取出 (prompt_tokens, completion_tokens, cached_tokens)。
+
+    OpenAI / DeepSeek(chat.completions)：prompt_tokens / completion_tokens，
+      缓存命中数在 prompt_tokens_details.cached_tokens 或 prompt_cache_hit_tokens；
+    Responses API / Anthropic 风格：input_tokens / output_tokens。
+    缺 usage 时返回全 0，由调用方用 estimate_tokens 兜底，避免账目凭空少记。
+    """
+    if usage is None:
+        return 0, 0, 0
+    pt = int(getattr(usage, "prompt_tokens", None)
+             or getattr(usage, "input_tokens", 0) or 0)
+    ct = int(getattr(usage, "completion_tokens", None)
+             or getattr(usage, "output_tokens", 0) or 0)
+    cached = 0
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is not None:
+        cached = int(getattr(details, "cached_tokens", 0) or 0)
+    if not cached:
+        cached = int(getattr(usage, "prompt_cache_hit_tokens", 0) or 0)
+    return pt, ct, cached
+
+
+class Target(NamedTuple):
+    """一次 LLM 调用的完整目标描述。"""
+
+    model_name: str          # 发给服务商的真实模型名
+    base_url: str
+    style: str               # chat | responses
+    provider: str            # 决定用哪把服务端凭据
+    route_id: str = ""       # 对外路由 id（注册表 id）
+    supports_thinking: bool = False
+    context_window: int = 0
+
+    def __str__(self) -> str:
+        return f"{self.route_id or self.model_name}@{self.provider}"
+
+
 class MockLLM:
     """确定性 mock，根据 prompt 中的关键子串返回结构化内容。"""
-
     @staticmethod
     def is_available() -> bool:
         return bool(settings.llm_api_key)
@@ -245,12 +284,30 @@ class UnifiedLLMClient:
 
     @property
     def enabled(self) -> bool:
-        """当前是否有可用 key（请求级 > 服务端）。"""
-        return bool(self._effective_key())
+        """当前是否有可用 key（请求级 BYOK > 目标模型所属 provider 的托管 key）。"""
+        return bool(self._key_for_provider(self.resolve().provider))
+
+    def _key_for_provider(self, provider: str) -> str:
+        """按 provider 取凭据。
+
+        关键设计：**凭据必须按 provider 解析**。
+        若所有 provider 共用一把服务端 key，模型路由一旦切到另一家，
+        请求就会因为 401 失败——降级链形同虚设，而且失败恰好发生在最需要它的时刻。
+        BYOK（用户自带 key）优先级最高：用户填的 key 与其选定的模型配套。
+        """
+        byok = llm_api_key_ctx.get()
+        if byok:
+            return byok
+        return settings.provider_key(provider)
+
+    def _key_for(self, model_id: str) -> str:
+        """按对外模型 id 取凭据（内部解析其 provider）。"""
+        from app.gateway.registry import provider_of
+        return self._key_for_provider(provider_of(model_id))
 
     def _effective_key(self) -> str:
-        """请求级用户 key 优先，其次服务端 key。"""
-        return llm_api_key_ctx.get() or settings.llm_api_key
+        """兼容旧调用：等价于「按当前目标模型取 key」。"""
+        return self._key_for(self.target()[0])
 
     @staticmethod
     def _pool_key(api_key: str, base_url: str) -> str:
@@ -278,12 +335,36 @@ class UnifiedLLMClient:
         return client
 
     def _get_client(self) -> Any:
-        """chat.completions 模式客户端（按当前请求的 key 取）。"""
-        return self._acquire(self._effective_key(), self.target()[1])
+        """chat.completions 模式客户端（按目标模型所属 provider 取凭据与接入点）。"""
+        t = self.resolve()
+        return self._acquire(self._key_for_provider(t.provider), t.base_url)
 
     def _get_responses_client(self) -> Any:
-        """Responses API 模式客户端（按当前请求的 key 取）。"""
-        return self._acquire(self._effective_key(), self.target()[1])
+        """Responses API 模式客户端（同上）。"""
+        t = self.resolve()
+        return self._acquire(self._key_for_provider(t.provider), t.base_url)
+
+    def resolve(self) -> "Target":
+        """当前请求的完整调用目标。
+
+        拆成独立方法（而不是改 target() 的返回结构）是为了不波及既有调用点：
+        target() 仍返回三元组，需要 provider / 思考能力的路径用 resolve()。
+        """
+        from app.gateway.registry import get_model
+        spec = get_model(llm_model_ctx.get())
+        if spec is not None:
+            return Target(model_name=spec.model_name, base_url=spec.base_url,
+                          style=spec.api_style, provider=spec.provider,
+                          route_id=spec.id, supports_thinking=spec.supports_thinking,
+                          context_window=spec.context_window)
+        if settings.llm_responses_mode:
+            return Target(model_name=settings.llm_responses_model,
+                          base_url=settings.llm_responses_base_url, style="responses",
+                          provider=settings.llm_default_provider,
+                          route_id=settings.llm_responses_model)
+        return Target(model_name=settings.llm_model, base_url=settings.llm_base_url,
+                      style="chat", provider=settings.llm_default_provider,
+                      route_id=settings.llm_model)
 
     def target(self) -> "tuple[str, str, str]":
         """当前请求的目标 (model_id, base_url, api_style)。
@@ -320,7 +401,54 @@ class UnifiedLLMClient:
             "server_key": bool(settings.llm_api_key),
             "max_retries": self._max_retries,
             "timeout_s": settings.llm_timeout,
+            "budget": spend_ledger.snapshot(),
         }
+
+    def _thinking_kwargs(self, max_tokens: Optional[int] = None) -> Dict[str, Any]:
+        """思考模式控制参数。
+
+        DeepSeek V4 系列默认开启「思考模式」：先输出思维链，再给正文。
+        实测数据（bench/model_availability.md）：
+
+        | 配置 | 正文 | 思维链 | 正文首字 |
+        |---|---|---|---|
+        | 关闭思考 + 256 token | 69 字 | 0 字 | 783 ms |
+        | 默认思考 + 64 token | **0 字** | 145 字 | 无 |
+        | 默认思考 + 768 token | 58 字 | 211 字 | 988 ms |
+
+        结论：不显式关闭思考，「小 max_tokens 的调用会静默返回空正文」——
+        接口 200、无异常、内容为空，属于最难排查的一类线上故障。
+        因此默认关闭；并且当 max_tokens 低于阈值时**无论如何都关闭**
+        （预算必然被思维链吃掉）。
+        """
+        t = self.resolve()
+        if not t.supports_thinking:
+            return {}
+        limit = max_tokens or settings.llm_max_tokens
+        if settings.llm_thinking_mode == "disabled" or limit < settings.llm_thinking_min_tokens:
+            return {"extra_body": {"thinking": {"type": "disabled"}}}
+        return {}
+
+    async def probe(self) -> Dict[str, Any]:
+        """真实探活一次（会消耗极少量额度），用于上线自检与评测取证。"""
+        model_id, base_url, style = self.target()
+        if not self.enabled:
+            return {"ok": False, "mode": style, "model": model_id,
+                    "base_url": base_url, "byok": False,
+                    "error": _NO_KEY_ERROR if not settings.test_mode else "test_mode 下走 mock"}
+        t0 = time.perf_counter()
+        try:
+            text = await self.chat("你是连通性探针。", "只回复两个字：正常",
+                                  temperature=0.0, max_tokens=16)
+            return {"ok": True, "mode": style, "model": model_id, "base_url": base_url,
+                    "byok": bool(llm_api_key_ctx.get()),
+                    "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+                    "reply": (text or "")[:40]}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "mode": style, "model": model_id, "base_url": base_url,
+                    "byok": bool(llm_api_key_ctx.get()),
+                    "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+                    "error": f"{type(e).__name__}: {e}"}
 
     async def chat(self, system_prompt: str, user_prompt: str,
                    *, temperature: Optional[float] = None,
@@ -335,6 +463,9 @@ class UnifiedLLMClient:
         model_id, _base_url, style = self.target()
         last_err: Optional[Exception] = None
         for attempt in range(self._max_retries):
+            # 成本护栏放在 try 之外：预算超限必须直接抛出，
+            # 不能被下面的 except Exception 当成「可重试错误」反复重试刷钱。
+            assert_budget(f"llm.chat:{model_id}")
             try:
                 if style == "responses":
                     resp = await self._get_responses_client().responses.create(
@@ -344,12 +475,12 @@ class UnifiedLLMClient:
                         temperature=temperature,
                         max_output_tokens=max_tokens or settings.llm_max_tokens,
                     )
-                    usage = getattr(resp, "usage", None)
-                    record_usage(
-                        model_id,
-                        int(getattr(usage, "input_tokens", 0) or 0),
-                        int(getattr(usage, "output_tokens", 0) or 0),
-                    )
+                    pt, ct, cached = usage_of(getattr(resp, "usage", None))
+                    if not (pt or ct):
+                        # 服务商未回传 usage：用文本长度兜底，保证成本账目不为零
+                        pt = estimate_tokens(system_prompt + user_prompt)
+                        ct = estimate_tokens(getattr(resp, "output_text", "") or "")
+                    record_usage(model_id, pt, ct, cached_tokens=cached, note="chat:responses")
                     return getattr(resp, "output_text", "") or ""
                 resp = await self._get_client().chat.completions.create(
                     model=model_id,
@@ -359,14 +490,44 @@ class UnifiedLLMClient:
                     ],
                     temperature=temperature,
                     max_tokens=max_tokens or settings.llm_max_tokens,
+                    **self._thinking_kwargs(max_tokens),
                 )
-                usage = getattr(resp, "usage", None)
-                record_usage(
-                    model_id,
-                    int(getattr(usage, "prompt_tokens", 0) or 0),
-                    int(getattr(usage, "completion_tokens", 0) or 0),
-                )
-                return resp.choices[0].message.content or ""
+                msg = resp.choices[0].message
+                content = msg.content or ""
+                reasoning = getattr(msg, "reasoning_content", "") or ""
+                pt, ct, cached = usage_of(getattr(resp, "usage", None))
+                if not (pt or ct):
+                    pt = estimate_tokens(system_prompt + user_prompt)
+                    ct = estimate_tokens(content)
+                record_usage(model_id, pt, ct, cached_tokens=cached, note="chat:completions")
+
+                if not content.strip() and reasoning:
+                    # 「思考模式吃满输出预算」的典型症状：有思维链、没正文。
+                    # 若当前是 auto 模式，先就地关掉思考重试一次；仍为空则报错，
+                    # 交由上层降级链换模型——绝不能把空字符串当成正常结果返回。
+                    if settings.llm_thinking_mode != "disabled":
+                        logger.warning("模型 {} 正文为空（思维链 {} 字），关闭思考重试一次",
+                                       model_id, len(reasoning))
+                        resp = await self._get_client().chat.completions.create(
+                            model=model_id,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            temperature=temperature,
+                            max_tokens=max_tokens or settings.llm_max_tokens,
+                            extra_body={"thinking": {"type": "disabled"}},
+                        )
+                        msg = resp.choices[0].message
+                        content = msg.content or ""
+                        pt2, ct2, cached2 = usage_of(getattr(resp, "usage", None))
+                        record_usage(model_id, pt2, ct2, cached_tokens=cached2,
+                                     note="chat:retry-no-thinking")
+                    if not content.strip():
+                        raise LLMError(
+                            f"模型 {model_id} 仅返回思维链（{len(reasoning)} 字）而正文为空："
+                            "思考模式占满了输出预算，且关闭思考后仍未产出正文")
+                return content
             except Exception as e:  # noqa: BLE001
                 last_err = e
                 if not is_retryable(e) or attempt == self._max_retries - 1:
@@ -391,6 +552,7 @@ class UnifiedLLMClient:
             raise LLMError(_NO_KEY_ERROR)
         temperature = temperature if temperature is not None else settings.llm_temperature
         model_id, _base_url, style = self.target()
+        assert_budget(f"llm.chat_stream:{model_id}")
         try:
             if style == "responses":
                 stream = await self._get_responses_client().responses.create(
@@ -408,10 +570,11 @@ class UnifiedLLMClient:
                         if delta:
                             yield delta
                     elif etype == "response.completed":
-                        usage = getattr(getattr(event, "response", None), "usage", None)
-                        record_usage(model_id,
-                                     int(getattr(usage, "input_tokens", 0) or 0),
-                                     int(getattr(usage, "output_tokens", 0) or 0))
+                        pt, ct, cached = usage_of(
+                            getattr(getattr(event, "response", None), "usage", None))
+                        if pt or ct:
+                            record_usage(model_id, pt, ct, cached_tokens=cached,
+                                         note="stream:responses")
                 return
             create_kwargs = {
                 "model": model_id,
@@ -422,6 +585,9 @@ class UnifiedLLMClient:
                 "temperature": temperature,
                 "max_tokens": max_tokens or settings.llm_max_tokens,
                 "stream": True,
+                # 流式下更要显式关闭思考：否则思维链会先占用输出预算，
+                # 小 max_tokens 场景正文一个字都吐不出来（实测必现）
+                **self._thinking_kwargs(max_tokens),
             }
             try:
                 # 让服务端在末帧回传 usage，流式调用也能被真实计量
@@ -432,16 +598,39 @@ class UnifiedLLMClient:
                 stream = await self._get_client().chat.completions.create(**create_kwargs)
 
             last_usage = None
+            content_chars = 0
+            reasoning_chars = 0
             async for chunk in stream:
                 if getattr(chunk, "usage", None):
                     last_usage = chunk.usage
-                delta = chunk.choices[0].delta.content if chunk.choices else None
-                if delta:
-                    yield delta
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta is None:
+                    continue
+                # 思维链与正文是不同字段。只读 content 会丢弃 reasoning_content，
+                # 于是在思考模式下表现为「接口正常但一个字都不返回」。
+                reasoning = getattr(delta, "reasoning_content", None) or ""
+                reasoning_chars += len(reasoning)
+                piece = delta.content
+                if piece:
+                    content_chars += len(piece)
+                    yield piece
+            if content_chars == 0 and reasoning_chars > 0:
+                # 已经什么都没产出，此时抛错是安全的（不会造成前端内容截断）
+                raise LLMError(
+                    f"模型 {model_id} 流式调用仅产出思维链（{reasoning_chars} 字）而正文为空："
+                    "思考模式占满输出预算")
             if last_usage is not None:
-                record_usage(model_id,
-                             int(getattr(last_usage, "prompt_tokens", 0) or 0),
-                             int(getattr(last_usage, "completion_tokens", 0) or 0))
+                pt, ct, cached = usage_of(last_usage)
+                if pt or ct:
+                    record_usage(model_id, pt, ct, cached_tokens=cached,
+                                 note="stream:completions")
+            else:
+                # 流式未回传 usage（部分兼容服务不支持 stream_options）：
+                # 用提示词长度兜底，避免「流式调用全部不记账」的漏洞
+                record_usage(model_id, estimate_tokens(system_prompt + user_prompt), 0,
+                             note="stream:completions:estimated")
         except Exception as e:  # noqa: BLE001
             logger.error("LLM {} 流式调用失败: {}", self._mode_label, e)
             raise LLMError(str(e))
